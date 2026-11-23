@@ -221,6 +221,7 @@ export const entries = pgTable(
     index('entries_status_idx').on(t.status),
     index('entries_created_idx').on(t.createdAt),
     index('entries_chain_id_idx').on(t.chainEntryId),
+    uniqueIndex('entries_tx_hash_unique_idx').on(t.txHash),
     index('entries_type_idx').on(t.entryType),
   ]
 )

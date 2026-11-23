@@ -31,6 +31,7 @@ function serializeEntry(
 ): SerializedEntry {
   return {
     id: entry.id,
+    chainEntryId: entry.chainEntryId,
     txHash: entry.txHash,
     authorAddress: entry.authorAddress,
     entryType: entry.entryType,

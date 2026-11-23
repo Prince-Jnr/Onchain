@@ -93,6 +93,7 @@ export interface Profile {
 
 export interface Entry {
   id: number
+  chainEntryId?: number | null
   txHash: string | null
   author: Address
   authorProfile: Profile | null

@@ -23,8 +23,6 @@ import {
   CONTRACT_ADDRESSES,
   MAX_POST_LENGTH,
   getTxUrl,
-  parseHashtags,
-  parseMentions,
 } from '@onchain/shared'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -89,11 +87,19 @@ export function PostComposer({
   const [mediaFiles, setMediaFiles] = useState<MediaPreview[]>([])
   const [phase, setPhase] = useState<TxPhase>('idle')
   const [txHash, setTxHash] = useState<string | null>(null)
+  const [preparedEntry, setPreparedEntry] = useState<{
+    text: string
+    mediaUrls: string[]
+    entryType: 'POST' | 'COMMENT' | 'QUOTE'
+    parentId: number | null
+    referenceId: number | null
+  } | null>(null)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [charWarning, setCharWarning] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const verifiedTxRef = useRef<string | null>(null)
 
   const contractAddress = CONTRACT_ADDRESSES[chainId]?.entries
 
@@ -113,23 +119,37 @@ export function PostComposer({
     el.style.height = `${el.scrollHeight}px`
   }, [text])
 
-  // Handle confirmed state
+  // A mined transaction is not shown in the feed until the server verifies its receipt and event.
   useEffect(() => {
-    if (isConfirmed && phase === 'submitted') {
-      toast.success('Post published on-chain!')
-      // We don't have the entryId from the tx receipt directly here,
-      // so pass 0 as a signal for the parent to refetch
-      onSuccess?.(0)
-      const timeout = setTimeout(() => {
-        setPhase('confirmed')
+    if (!isConfirmed || phase !== 'submitted' || !txHash || !preparedEntry) return
+    if (verifiedTxRef.current === txHash) return
+    verifiedTxRef.current = txHash
+    void (async () => {
+      try {
+        const response = await fetch('/api/entries/confirm', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ txHash, ...preparedEntry }),
+        })
+        const data = await response.json() as { id?: number; error?: string }
+        if (!response.ok || typeof data.id !== 'number') {
+          throw new Error(data.error ?? 'Transaction confirmed, but entry verification is still pending. Retry by refreshing the feed.')
+        }
+        toast.success('Post published on-chain and verified.')
+        onSuccess?.(data.id)
+        setPhase('idle')
         setText('')
         setMediaFiles([])
         setTxHash(null)
-        setPhase('idle')
-      }, 0)
-      return () => clearTimeout(timeout)
-    }
-  }, [isConfirmed, phase, onSuccess])
+        setPreparedEntry(null)
+      } catch (error) {
+        verifiedTxRef.current = null
+        setPhase('failed')
+        toast.error(error instanceof Error ? error.message : 'Could not verify the confirmed transaction.')
+      }
+    })()
+  }, [isConfirmed, phase, txHash, preparedEntry, onSuccess])
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
@@ -233,23 +253,20 @@ export function PostComposer({
 
       // 2. Upload content to IPFS via API
       setPhase('preparing')
-      const hashtags = parseHashtags(text)
-      const mentions = parseMentions(text)
-
-      const contentPayload = {
-        text: text.trim(),
-        hashtags,
-        mentions,
-        mediaUrls,
-        replyToId: replyTo?.id ?? undefined,
-        quoteId: quotedEntry?.id ?? undefined,
+      const isComment = !!replyTo
+      const isQuote = !!quotedEntry
+      const entryType = isComment ? 'COMMENT' : isQuote ? 'QUOTE' : 'POST'
+      const parentId = replyTo?.chainEntryId ?? null
+      const referenceId = quotedEntry?.chainEntryId ?? null
+      if ((replyTo && !parentId) || (quotedEntry && !referenceId)) {
+        throw new Error('This entry is not synchronized with the blockchain yet. Refresh and try again.')
       }
 
       const uploadRes = await fetch('/api/entries', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contentPayload),
+        body: JSON.stringify({ text: text.trim(), mediaUrls }),
       })
 
       if (!uploadRes.ok) {
@@ -257,16 +274,13 @@ export function PostComposer({
         throw new Error((body as { error?: string }).error ?? 'Failed to prepare post')
       }
 
-      const { contentRef, pendingId } = (await uploadRes.json()) as {
+      const { contentRef } = (await uploadRes.json()) as {
         contentRef: string
-        pendingId: number
       }
+      setPreparedEntry({ text: text.trim(), mediaUrls, entryType, parentId, referenceId })
 
       // 3. Submit transaction
       setPhase('awaiting_wallet')
-
-      const isComment = !!replyTo
-      const isQuote = !!quotedEntry
 
       if (isComment) {
         writeContract(
@@ -274,7 +288,7 @@ export function PostComposer({
             address: contractAddress,
             abi: ONCHAIN_ENTRIES_ABI,
             functionName: 'createComment',
-            args: [BigInt(replyTo!.id), contentRef],
+            args: [BigInt(parentId!), contentRef],
           },
           {
             onSuccess: (hash) => {
@@ -291,7 +305,7 @@ export function PostComposer({
             address: contractAddress,
             abi: ONCHAIN_ENTRIES_ABI,
             functionName: 'createQuote',
-            args: [BigInt(quotedEntry!.id), contentRef],
+            args: [BigInt(referenceId!), contentRef],
           },
           {
             onSuccess: (hash) => {
@@ -465,7 +479,7 @@ export function PostComposer({
                 {phase === 'preparing' && (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Preparing content for IPFS…
+                  Preparing content reference…
                   </>
                 )}
                 {phase === 'awaiting_wallet' && (
@@ -494,6 +508,14 @@ export function PostComposer({
                   View transaction <ExternalLink className="h-3 w-3" />
                 </a>
               )}
+            </div>
+          )}
+          {phase === 'failed' && txHash && preparedEntry && isConfirmed && (
+            <div className="mt-3 flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+              <span>The transaction is confirmed; entry indexing needs another attempt.</span>
+              <Button size="sm" variant="outline" onClick={() => setPhase('submitted')}>
+                Retry verification
+              </Button>
             </div>
           )}
 

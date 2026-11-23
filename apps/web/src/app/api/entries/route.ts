@@ -7,12 +7,9 @@ import {
   media,
   wallets,
   profiles,
-  hashtags,
-  entryHashtags,
-  mentions,
-  notifications,
 } from '@/lib/schema'
 import { getAuthenticatedSession } from '@/lib/session'
+import { createEntryContentDocument, getEntryContentReference } from '@/lib/content-reference'
 
 // ---------------------------------------------------------------------------
 // Rate limiting
@@ -52,6 +49,7 @@ function serializeEntry(
 ) {
   return {
     id: entry.id,
+    chainEntryId: entry.chainEntryId,
     txHash: entry.txHash,
     authorAddress: entry.authorAddress,
     entryType: entry.entryType,
@@ -117,10 +115,6 @@ function extractMentions(text: string): string[] {
 // POST /api/entries — Create a new entry
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({ error: 'Database not configured' }, { status: 503 })
-  }
-
   const session = await getAuthenticatedSession()
   if (!session) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -134,206 +128,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
 
-  let body: {
-    contentRef?: unknown
-    entryType?: unknown
-    parentId?: unknown
-    referenceId?: unknown
-    txHash?: unknown
-    content?: { text?: unknown }
-  }
+  let body: { text?: unknown; mediaUrls?: unknown }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  // Validate contentRef
-  if (typeof body.contentRef !== 'string' || !body.contentRef.trim()) {
-    return NextResponse.json({ error: 'contentRef must be a non-empty string' }, { status: 400 })
+  if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 500) {
+    return NextResponse.json({ error: 'text must contain 1–500 characters' }, { status: 400 })
   }
-  if (body.contentRef.length > 512) {
-    return NextResponse.json({ error: 'contentRef must not exceed 512 characters' }, { status: 400 })
+  const mediaUrls = Array.isArray(body.mediaUrls) && body.mediaUrls.every((url) => typeof url === 'string')
+    ? body.mediaUrls as string[]
+    : []
+  if (mediaUrls.length > 4 || mediaUrls.some((url) => url.length > 2048)) {
+    return NextResponse.json({ error: 'Invalid media URLs' }, { status: 400 })
   }
-
-  // Validate entryType
-  const validTypes = ['POST', 'COMMENT', 'QUOTE'] as const
-  if (!validTypes.includes(body.entryType as (typeof validTypes)[number])) {
-    return NextResponse.json({ error: 'entryType must be POST, COMMENT, or QUOTE' }, { status: 400 })
-  }
-  const entryType = body.entryType as 'POST' | 'COMMENT' | 'QUOTE'
-
-  // Validate content text
-  if (
-    !body.content ||
-    typeof body.content.text !== 'string' ||
-    !body.content.text.trim()
-  ) {
-    return NextResponse.json({ error: 'content.text must be a non-empty string' }, { status: 400 })
-  }
-  if (body.content.text.length > 500) {
-    return NextResponse.json({ error: 'content.text must not exceed 500 characters' }, { status: 400 })
-  }
-
-  const contentText = body.content.text as string
-  const contentRef = body.contentRef as string
-  const txHash = typeof body.txHash === 'string' ? body.txHash : null
-
-  // Validate parentId if provided
-  let parentId: number | null = null
-  if (body.parentId !== undefined && body.parentId !== null) {
-    const pid = Number(body.parentId)
-    if (!Number.isInteger(pid) || pid <= 0) {
-      return NextResponse.json({ error: 'parentId must be a positive integer' }, { status: 400 })
-    }
-    const [parentEntry] = await db
-      .select({ id: entries.id })
-      .from(entries)
-      .where(eq(entries.id, pid))
-      .limit(1)
-    if (!parentEntry) {
-      return NextResponse.json({ error: 'parentId does not exist' }, { status: 400 })
-    }
-    parentId = pid
-  }
-
-  // Validate referenceId if provided
-  let referenceId: number | null = null
-  if (body.referenceId !== undefined && body.referenceId !== null) {
-    const rid = Number(body.referenceId)
-    if (!Number.isInteger(rid) || rid <= 0) {
-      return NextResponse.json({ error: 'referenceId must be a positive integer' }, { status: 400 })
-    }
-    const [refEntry] = await db
-      .select({ id: entries.id })
-      .from(entries)
-      .where(eq(entries.id, rid))
-      .limit(1)
-    if (!refEntry) {
-      return NextResponse.json({ error: 'referenceId does not exist' }, { status: 400 })
-    }
-    referenceId = rid
-  }
-
-  try {
-    // Insert entry
-    const [newEntry] = await db
-      .insert(entries)
-      .values({
-        authorAddress: session.walletAddress,
-        entryType,
-        parentId,
-        referenceId,
-        contentRef,
-        txHash,
-        status: 'ACTIVE',
-      })
-      .returning()
-
-    // Insert content
-    const tagList = extractHashtags(contentText)
-    const mentionList = extractMentions(contentText)
-
-    const [newContent] = await db
-      .insert(entryContent)
-      .values({
-        entryId: newEntry.id,
-        text: contentText,
-        hashtags: tagList,
-        mentions: mentionList,
-      })
-      .returning()
-
-    // Process hashtags: upsert each, then link
-    if (tagList.length > 0) {
-      for (const tag of tagList) {
-        const [upsertedTag] = await db
-          .insert(hashtags)
-          .values({ tag, postCount: 1 })
-          .onConflictDoUpdate({
-            target: hashtags.tag,
-            set: {
-              postCount: sql`${hashtags.postCount} + 1`,
-              lastUsedAt: new Date(),
-            },
-          })
-          .returning({ id: hashtags.id })
-
-        await db
-          .insert(entryHashtags)
-          .values({ entryId: newEntry.id, hashtagId: upsertedTag.id })
-          .onConflictDoNothing()
-      }
-    }
-
-    // Process mentions: insert mention records + notifications
-    if (mentionList.length > 0) {
-      for (const address of mentionList) {
-        // Skip self-mentions
-        if (address === session.walletAddress) continue
-
-        // Insert mention record
-        await db
-          .insert(mentions)
-          .values({ entryId: newEntry.id, mentionedAddress: address })
-          .onConflictDoNothing()
-
-        // Check if mentioned wallet exists before creating notification
-        const [mentionedWallet] = await db
-          .select({ address: wallets.address })
-          .from(wallets)
-          .where(eq(wallets.address, address))
-          .limit(1)
-
-        if (mentionedWallet) {
-          await db.insert(notifications).values({
-            recipientAddress: address,
-            type: 'MENTION',
-            actorAddress: session.walletAddress,
-            targetEntryId: newEntry.id,
-          })
-        }
-      }
-    }
-
-    // Also create a REPLY notification if this is a comment on someone else's post
-    if (entryType === 'COMMENT' && parentId) {
-      const [parentEntryRow] = await db
-        .select({ authorAddress: entries.authorAddress })
-        .from(entries)
-        .where(eq(entries.id, parentId))
-        .limit(1)
-
-      if (parentEntryRow && parentEntryRow.authorAddress !== session.walletAddress) {
-        await db.insert(notifications).values({
-          recipientAddress: parentEntryRow.authorAddress,
-          type: 'REPLY',
-          actorAddress: session.walletAddress,
-          targetEntryId: newEntry.id,
-        })
-      }
-    }
-
-    // Fetch author wallet + profile for response
-    const [walletRow] = await db
-      .select()
-      .from(wallets)
-      .where(eq(wallets.address, session.walletAddress))
-      .limit(1)
-    const [profileRow] = await db
-      .select()
-      .from(profiles)
-      .where(eq(profiles.walletAddress, session.walletAddress))
-      .limit(1)
-
-    return NextResponse.json(
-      serializeEntry(newEntry, newContent, [], walletRow ?? null, profileRow ?? null),
-      { status: 201 },
-    )
-  } catch (error) {
-    console.error('[entries POST] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
+  const document = createEntryContentDocument(body.text, mediaUrls)
+  return NextResponse.json({ contentRef: getEntryContentReference(document), document })
 }
 
 // ---------------------------------------------------------------------------
