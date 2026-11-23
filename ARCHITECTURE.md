@@ -5,7 +5,7 @@
 - `apps/web`: Next.js App Router application, API route handlers, wagmi/RainbowKit client, Drizzle schema, and database access.
 - `packages/contracts`: four Solidity contracts, Foundry deployment script, OpenZeppelin dependencies, and tests.
 - `packages/shared`: shared ABI, types, chain IDs, and address configuration.
-- `apps/indexer` and `apps/api`: directories exist but currently contain no implementation.
+- `apps/indexer`: long-running viem/PostgreSQL worker that archives configured contract logs, checkpoints chunk block hashes, repairs bounded reorgs, and projects Entries create/status/pin events. `apps/api` remains empty.
 - `apps/web/drizzle`: Drizzle Kit configuration and generated PostgreSQL migration.
 
 ## Implemented post path
@@ -28,9 +28,10 @@ The content hash is stored on-chain; the matching text is stored in PostgreSQL. 
 
 ## Not implemented yet
 
-- Durable chain event indexing, confirmations/finality policy, reorganization handling, and reconciliation.
-- Backfill from deployment block and recovery from missed events.
-- A complete chain-authoritative source for every social and moderation action.
+- The indexer is not deployed or connected to a live RPC/database. It archives logs for all configured contracts but only projects entry creation, entry status, and pin state.
+- Materialized projections for reactions, reposts, follows, profiles, reports, and all administrative events.
+- Unbounded historical recovery if a reorganization exceeds the retained 128 chunk markers.
+- A full chain-authoritative source for every social and moderation action.
 - Production database credentials and an applied migration.
 - Realtime notifications, cross-instance rate limiting, operational monitoring, and a CI workflow.
 - Verified production deployment or browser-based visual inspection.

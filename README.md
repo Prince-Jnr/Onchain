@@ -11,7 +11,7 @@ ONCHAIN is an in-progress wallet-based social guestbook. This repository contain
 - Four Solidity contracts and Foundry tests for entries, social interactions, profiles, and moderation.
 - Shared TypeScript package for contract ABIs and common types.
 
-The post path now prepares a deterministic content hash and only persists entries after server-side verification of a confirmed transaction and its `EntryCreated` event. Image uploads use Pinata when `PINATA_JWT` is configured, and an initial Drizzle migration is included. The durable event indexer and several advertised API features are still missing, so the app is not production-ready. See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for current verification and gaps.
+The post path now stages a deterministic content document, asks the user's wallet to create its on-chain reference, and persists entries after receipt/event verification. A long-running indexer now archives configured contract logs and projects entry create/status/pin events, with bounded reorg recovery. Image uploads use Pinata when `PINATA_JWT` is configured, and Drizzle migrations are included. Other social event projections, production services, and several advertised API features are still missing, so the app is not production-ready. See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for verification and gaps.
 
 ## Requirements
 

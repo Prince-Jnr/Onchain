@@ -7,9 +7,10 @@ import {
   media,
   wallets,
   profiles,
+  pendingEntries,
 } from '@/lib/schema'
 import { getAuthenticatedSession } from '@/lib/session'
-import { createEntryContentDocument, getEntryContentReference } from '@/lib/content-reference'
+import { createEntryContentDocument, getEntryContentReference } from '@onchain/shared'
 
 // ---------------------------------------------------------------------------
 // Rate limiting
@@ -103,6 +104,9 @@ function serializeEntry(
 // POST /api/entries — Create a new entry
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
+  if (!process.env.DATABASE_URL) {
+    return NextResponse.json({ error: 'Database not configured' }, { status: 503 })
+  }
   const session = await getAuthenticatedSession()
   if (!session) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -116,7 +120,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
 
-  let body: { text?: unknown; mediaUrls?: unknown }
+  let body: { text?: unknown; mediaUrls?: unknown; media?: unknown; entryType?: unknown; parentId?: unknown; referenceId?: unknown }
   try {
     body = await request.json()
   } catch {
@@ -132,8 +136,72 @@ export async function POST(request: NextRequest) {
   if (mediaUrls.length > 4 || mediaUrls.some((url) => url.length > 2048)) {
     return NextResponse.json({ error: 'Invalid media URLs' }, { status: 400 })
   }
+  const mediaItems = Array.isArray(body.media) ? body.media as { url?: unknown; ipfsCid?: unknown; mimeType?: unknown; sizeBytes?: unknown }[] : []
+  const allowedMediaTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+  if (mediaItems.length !== mediaUrls.length || mediaItems.some((item, index) =>
+    item.url !== mediaUrls[index] || typeof item.ipfsCid !== 'string' || !/^bafy[a-z2-7]{20,}$/.test(item.ipfsCid) ||
+    item.url !== `https://gateway.pinata.cloud/ipfs/${item.ipfsCid}` ||
+    typeof item.mimeType !== 'string' || !allowedMediaTypes.has(item.mimeType) ||
+    typeof item.sizeBytes !== 'number' || !Number.isSafeInteger(item.sizeBytes) || item.sizeBytes <= 0 || item.sizeBytes > 10 * 1024 * 1024
+  )) {
+    return NextResponse.json({ error: 'Media metadata does not match the pinned content URLs' }, { status: 400 })
+  }
+  if (new Set(mediaItems.map((item) => item.ipfsCid)).size !== mediaItems.length) {
+    return NextResponse.json({ error: 'Duplicate image content references are not allowed' }, { status: 400 })
+  }
+  const entryTypes = ['POST', 'COMMENT', 'QUOTE'] as const
+  if (!entryTypes.includes(body.entryType as (typeof entryTypes)[number])) {
+    return NextResponse.json({ error: 'Invalid entry type' }, { status: 400 })
+  }
+  const entryType = body.entryType as (typeof entryTypes)[number]
+  const parentChainId = body.parentId == null ? 0 : Number(body.parentId)
+  const referenceChainId = body.referenceId == null ? 0 : Number(body.referenceId)
+  if (!Number.isSafeInteger(parentChainId) || !Number.isSafeInteger(referenceChainId) || parentChainId < 0 || referenceChainId < 0) {
+    return NextResponse.json({ error: 'Invalid entry reference' }, { status: 400 })
+  }
+  if ((entryType === 'POST' && (parentChainId !== 0 || referenceChainId !== 0)) ||
+      (entryType === 'COMMENT' && (parentChainId === 0 || referenceChainId !== 0)) ||
+      (entryType === 'QUOTE' && (parentChainId !== 0 || referenceChainId === 0))) {
+    return NextResponse.json({ error: 'Entry type and references do not match' }, { status: 400 })
+  }
   const document = createEntryContentDocument(body.text, mediaUrls)
-  return NextResponse.json({ contentRef: getEntryContentReference(document), document })
+  const contentRef = getEntryContentReference(document)
+  const now = new Date()
+  try {
+    await db.delete(pendingEntries).where(and(eq(pendingEntries.authorAddress, session.walletAddress), lt(pendingEntries.expiresAt, now)))
+    await db.insert(pendingEntries).values({
+      authorAddress: session.walletAddress,
+      chainId: session.chainId ?? 0,
+      entryType,
+      parentChainId,
+      referenceChainId,
+      contentRef,
+      text: document.text,
+      hashtags: document.hashtags,
+      mentions: document.mentions,
+      mediaUrls,
+      mediaMetadata: mediaItems,
+      expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+    }).onConflictDoUpdate({
+      target: [pendingEntries.authorAddress, pendingEntries.contentRef],
+      set: {
+        chainId: session.chainId ?? 0,
+        entryType,
+        parentChainId,
+        referenceChainId,
+        text: document.text,
+        hashtags: document.hashtags,
+        mentions: document.mentions,
+        mediaUrls,
+        mediaMetadata: mediaItems,
+        expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+      },
+    })
+    return NextResponse.json({ contentRef, document })
+  } catch (error) {
+    console.error('[entries prepare] Could not stage pending content:', error)
+    return NextResponse.json({ error: 'Could not prepare this entry. Try again.' }, { status: 503 })
+  }
 }
 
 // ---------------------------------------------------------------------------

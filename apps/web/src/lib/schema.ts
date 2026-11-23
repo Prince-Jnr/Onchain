@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   serial,
   jsonb,
+  primaryKey,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
@@ -224,6 +225,31 @@ export const entries = pgTable(
     uniqueIndex('entries_tx_hash_unique_idx').on(t.txHash),
     index('entries_type_idx').on(t.entryType),
   ]
+)
+
+export const pendingEntries = pgTable(
+  'pending_entries',
+  {
+    id: serial('id').primaryKey(),
+    authorAddress: varchar('author_address', { length: 42 }).notNull().references(() => wallets.address),
+    chainId: integer('chain_id').notNull(),
+    entryType: entryTypeEnum('entry_type').notNull(),
+    parentChainId: bigint('parent_chain_id', { mode: 'number' }).notNull().default(0),
+    referenceChainId: bigint('reference_chain_id', { mode: 'number' }).notNull().default(0),
+    contentRef: varchar('content_ref', { length: 66 }).notNull(),
+    text: text('text').notNull(),
+    hashtags: text('hashtags').array().notNull().default([]),
+    mentions: text('mentions').array().notNull().default([]),
+    mediaUrls: text('media_urls').array().notNull().default([]),
+    mediaMetadata: jsonb('media_metadata').notNull().default([]),
+    expiresAt: timestamp('expires_at').notNull(),
+    consumedAt: timestamp('consumed_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('pending_entries_author_ref_unique_idx').on(t.authorAddress, t.contentRef),
+    index('pending_entries_expiry_idx').on(t.expiresAt),
+  ],
 )
 
 export const entryContent = pgTable(
@@ -476,11 +502,48 @@ export const indexerCheckpoints = pgTable(
     lastBlock: bigint('last_block', { mode: 'number' }).notNull().default(0),
     lastLogIndex: integer('last_log_index').notNull().default(0),
     lastTxHash: varchar('last_tx_hash', { length: 66 }),
+    lastBlockHash: varchar('last_block_hash', { length: 66 }),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('indexer_chain_contract_idx').on(t.chainId, t.contractName),
   ]
+)
+
+export const indexedEvents = pgTable(
+  'indexed_events',
+  {
+    id: serial('id').primaryKey(),
+    chainId: integer('chain_id').notNull(),
+    contractName: varchar('contract_name', { length: 50 }).notNull(),
+    contractAddress: varchar('contract_address', { length: 42 }).notNull(),
+    blockNumber: bigint('block_number', { mode: 'number' }).notNull(),
+    blockHash: varchar('block_hash', { length: 66 }).notNull(),
+    transactionHash: varchar('transaction_hash', { length: 66 }).notNull(),
+    logIndex: integer('log_index').notNull(),
+    topics: jsonb('topics').$type<string[]>().notNull(),
+    data: text('data').notNull(),
+    canonical: boolean('canonical').notNull().default(true),
+    indexedAt: timestamp('indexed_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('indexed_events_tx_log_unique_idx').on(t.chainId, t.transactionHash, t.logIndex),
+    index('indexed_events_block_idx').on(t.chainId, t.contractName, t.blockNumber),
+  ],
+)
+
+export const indexedBlocks = pgTable(
+  'indexed_blocks',
+  {
+    chainId: integer('chain_id').notNull(),
+    contractName: varchar('contract_name', { length: 50 }).notNull(),
+    blockNumber: bigint('block_number', { mode: 'number' }).notNull(),
+    blockHash: varchar('block_hash', { length: 66 }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.chainId, t.contractName, t.blockNumber] }),
+    index('indexed_blocks_recent_idx').on(t.chainId, t.contractName, t.blockNumber),
+  ],
 )
 
 export const appConfig = pgTable('app_config', {

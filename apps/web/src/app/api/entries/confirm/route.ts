@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { createPublicClient, decodeEventLog, defineChain, http, isAddress, isHex } from 'viem'
 import { CHAIN_IDS, ONCHAIN_ENTRIES_ABI } from '@onchain/shared'
 import { db } from '@/lib/db'
-import { entryContent, entries, media, wallets } from '@/lib/schema'
-import { getEntryContentReference, createEntryContentDocument } from '@/lib/content-reference'
+import { entryContent, entries, media, pendingEntries, wallets } from '@/lib/schema'
+import { getEntryContentReference, createEntryContentDocument } from '@onchain/shared'
 import { getAuthenticatedSession } from '@/lib/session'
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
@@ -91,6 +91,28 @@ export async function POST(request: NextRequest) {
 
   const document = createEntryContentDocument(body.text, mediaUrls)
   const contentRef = getEntryContentReference(document)
+  const [pending] = await db.select().from(pendingEntries).where(and(
+    eq(pendingEntries.authorAddress, session.walletAddress.toLowerCase()),
+    eq(pendingEntries.chainId, chainId ?? 0),
+    eq(pendingEntries.contentRef, contentRef),
+  )).limit(1)
+  if (!pending) {
+    return NextResponse.json({ error: 'Prepared content was not found or has expired. Prepare the post again.' }, { status: 409 })
+  }
+  const storedMediaItems = pending.mediaMetadata as typeof mediaItems
+  const mediaMatches = storedMediaItems.length === mediaItems.length && storedMediaItems.every((item, index) =>
+    item.url === mediaItems[index]?.url && item.ipfsCid === mediaItems[index]?.ipfsCid &&
+    item.mimeType === mediaItems[index]?.mimeType && item.sizeBytes === mediaItems[index]?.sizeBytes,
+  )
+  if (pending.entryType !== entryType || pending.parentChainId !== parentNumber || pending.referenceChainId !== referenceNumber ||
+      pending.text !== document.text || JSON.stringify(pending.mediaUrls) !== JSON.stringify(mediaUrls) ||
+      !mediaMatches) {
+    return NextResponse.json({ error: 'Transaction content does not match the prepared wallet action' }, { status: 422 })
+  }
+  const storedDocument = createEntryContentDocument(pending.text, pending.mediaUrls)
+  if (getEntryContentReference(storedDocument) !== pending.contentRef) {
+    return NextResponse.json({ error: 'Prepared content integrity check failed' }, { status: 500 })
+  }
   const client = createPublicClient({
     chain,
     transport: http(chainId === CHAIN_IDS.BASE_SEPOLIA
@@ -145,7 +167,7 @@ export async function POST(request: NextRequest) {
           mentions: document.mentions,
         })
       }
-      for (const item of mediaItems) {
+      for (const item of storedMediaItems) {
         await db.insert(media).values({
           entryId: existing.id,
           url: item.url as string,
@@ -154,6 +176,7 @@ export async function POST(request: NextRequest) {
           sizeBytes: item.sizeBytes as number,
         }).onConflictDoNothing()
       }
+      await db.update(pendingEntries).set({ consumedAt: new Date() }).where(eq(pendingEntries.id, pending.id))
       return NextResponse.json({ id: existing.id, chainEntryId: existing.chainEntryId, txHash: hash })
     }
 
@@ -201,7 +224,7 @@ export async function POST(request: NextRequest) {
       hashtags: document.hashtags,
       mentions: document.mentions,
     }).returning()
-    for (const item of mediaItems) {
+    for (const item of storedMediaItems) {
       await db.insert(media).values({
         entryId: newEntry.id,
         url: item.url as string,
@@ -210,6 +233,7 @@ export async function POST(request: NextRequest) {
         sizeBytes: item.sizeBytes as number,
       })
     }
+    await db.update(pendingEntries).set({ consumedAt: new Date() }).where(eq(pendingEntries.id, pending.id))
     return NextResponse.json({ id: newEntry.id, chainEntryId: newEntry.chainEntryId, txHash: hash, status: newEntry.status, content: content.text }, { status: 201 })
   } catch (error) {
     console.error('[entries confirm] Verification failed:', error)

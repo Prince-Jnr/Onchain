@@ -1,0 +1,22 @@
+{
+  "name": "@onchain/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --noEmit",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.1",
+    "@onchain/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "viem": "^2.58.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}

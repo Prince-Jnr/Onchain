@@ -269,7 +269,14 @@ export function PostComposer({
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim(), mediaUrls }),
+        body: JSON.stringify({
+          text: text.trim(),
+          mediaUrls,
+          media: uploadedMedia,
+          entryType,
+          parentId,
+          referenceId,
+        }),
       })
 
       if (!uploadRes.ok) {

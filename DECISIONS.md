@@ -12,7 +12,7 @@ The browser uses wagmi/viem and asks the connected wallet to authorize each supp
 
 ## D-003: PostgreSQL feed persistence requires chain receipt evidence
 
-For entry creation, the browser hashes a canonical content document, the contract records that hash, and the server checks the actual chain receipt and matching event before saving the content projection. PostgreSQL does not make a post authoritative. A durable event indexer is still required for recovery and reorganization handling.
+For entry creation, the browser stages and hashes a canonical content document, the contract records that hash, and the server checks the actual chain receipt and matching event before saving the content projection. PostgreSQL does not make a post authoritative. A durable worker archives events and projects entry create/status/pin state; deployment and the remaining social projections are outstanding.
 
 ## D-004: Post text and media use separate storage paths
 

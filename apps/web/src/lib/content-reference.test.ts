@@ -4,7 +4,7 @@ import {
   extractHashtags,
   extractMentions,
   getEntryContentReference,
-} from './content-reference'
+} from '@onchain/shared'
 
 describe('entry content references', () => {
   it('normalizes and deduplicates tags and wallet mentions', () => {

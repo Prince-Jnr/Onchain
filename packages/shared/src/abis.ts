@@ -37,6 +37,15 @@ export const ONCHAIN_ENTRIES_ABI = [
       { name: 'timestamp', type: 'uint256', indexed: false },
     ],
   },
+  {
+    type: 'event',
+    name: 'EntryPinned',
+    inputs: [
+      { name: 'entryId', type: 'uint256', indexed: true },
+      { name: 'pinned', type: 'bool', indexed: false },
+      { name: 'by', type: 'address', indexed: true },
+    ],
+  },
   // Write functions
   {
     type: 'function',

@@ -22,22 +22,23 @@ This repository was already populated when work began. It is an uncommitted proj
 | `pnpm --filter @onchain/contracts build` | Pass; compiler reports modifier-order lint warnings. |
 | `pnpm --filter @onchain/contracts test` | Pass; 84 tests across 3 suites. |
 | `pnpm --filter @onchain/web typecheck` | Pass after repairing authenticated-session narrowing, Lucide icon exports, search type naming, and recursive API serialization typing. |
-| `pnpm --filter @onchain/web lint` | Pass with 40 warnings remaining before the current transaction/auth changes; rerun below before deployment. |
-| `pnpm build` | Pass. Contracts compile and the Next.js production build completes with Webpack; 23 web routes compiled and static generation completed. |
+| `pnpm --filter @onchain/web lint` | Pass with 38 warnings (mostly unused imports/variables and one navigation warning). |
+| `pnpm build` | Pass after adding a typecheck preflight and limiting build workers; contracts and web build complete. |
 | Production smoke check | Pass; local production server returned HTTP 200 for `/` (32,452-byte HTML response). |
-| `pnpm --filter @onchain/web test` | Three new content-reference tests pass; no broader frontend suite exists yet. |
+| `pnpm --filter @onchain/web test` | Three content-reference tests pass; no broader frontend suite exists yet. |
 | `pnpm --filter @onchain/shared typecheck` | Fail; package has no `tsconfig.json`, so `tsc --noEmit` prints help instead of checking sources. |
 
 ## Important implementation gaps found
 
-- The post API now only prepares a deterministic content hash. A separate confirmation endpoint checks the actual receipt, sender, target contract, and matching `EntryCreated` event before creating a database record. This path has not yet been exercised against a deployed contract and live database.
+- The post API stages a deterministic content hash and private pending content. A separate confirmation endpoint checks the actual receipt, sender, target contract, and matching `EntryCreated` event before creating a visible database entry. The indexer can recover staged content if the client closes after a transaction. This path has not yet been exercised against a deployed contract and live database.
 - SIWE nonce consumption is now an atomic update, and production SIWE domain validation uses `NEXT_PUBLIC_APP_URL`. The full SIWE flow remains untested against a configured database/deployment.
 - Session creation now fails closed when `SESSION_SECRET` is absent or shorter than 32 characters.
 - Rate limiters use in-memory maps, so they are process-local and unsuitable as distributed production controls.
 - Database initialization is lazy and fails closed when `DATABASE_URL` is absent. No database is configured, so database-backed runtime routes remain unavailable.
-- Other social writes still require review: several interactions are currently application/database-layer and must be labeled as such or moved on-chain. The confirmation path is not a replacement for a durable event indexer.
-- `apps/indexer` and `apps/api` directories exist but are empty. The Drizzle schema and migration tooling are in the web app, with the first migration generated; there is no durable indexer, CI workflow, or Playwright configuration.
-- No `.env*` files were found. Vercel is authenticated, but no matching project or deployment exists. No RPC, database, WalletConnect, IPFS or deployment secrets were found in the process environment (values were never printed).
+- Other social writes still require review: several interactions are currently application/database-layer and must be labeled as such or moved on-chain.
+- The indexer archives configured contract logs and projects entry creation, moderation status, and pin events. Other social/profile/report projections are not implemented, and the worker has not been run against a live database or RPC. `apps/api` remains empty.
+- Drizzle migrations are generated but unapplied. There is no CI workflow or Playwright configuration.
+- `.env.example` documents required settings, but no runtime `.env` credentials are configured. Vercel is authenticated, but no matching project or deployment exists. No RPC, database, WalletConnect, IPFS or deployment secrets were found in the process environment (values were never printed).
 - Playwright 1.65.1 is installed, but no Playwright browser binaries were found; visual inspection has not yet been performed.
 - Vercel is now authenticated. A project search for `onchain` and matching deployment search both returned zero results; this checkout has no `.vercel/project.json` or Git remote, so it is not linked to a Vercel project.
 
@@ -58,7 +59,9 @@ This repository was already populated when work began. It is an uncommitted proj
 - Made SIWE nonce consumption atomic and bound the accepted production SIWE domain to the configured app URL.
 - Added Base mainnet contract-address environment mapping. No contract has been deployed to populate those addresses.
 - Added a Drizzle Kit config, fixed root database scripts to target the actual web package, and generated the initial PostgreSQL migration. The migration has not been applied because no database is configured.
+- Added the standalone indexer worker, durable event/block ledgers, a per-chain advisory lock, bounded reorg rollback, and staged-content recovery. Added schema migrations for indexer state and pending entries. The indexer typecheck passes but it has not been run against external services.
+- Final checks after current changes: root workspace build passes, web typecheck passes, 84 Foundry tests pass, 3 web unit tests pass, lint passes with 38 warnings, and the built homepage smoke check returns HTTP 200.
 
 ## Remaining work
 
-The code still needs a complete runtime check after these changes. The product is not production-ready: no live database, deployed contract, durable event indexer, distributed rate limiter, media credential, or deployment is configured. Next priorities are an authoritative indexer and migrations, a broader contract-write audit, integration checks with Base Sepolia and PostgreSQL, browser-based visual checks, and then local-directory Vercel deployment after runtime secrets are configured.
+The product is not production-ready: no live database, deployed contract, running indexer, distributed rate limiter, media credential, or deployment is configured. Next priorities are broader event projections and a contract-write audit, integration checks with Base Sepolia and PostgreSQL, browser-based visual checks, then local-directory Vercel deployment after runtime secrets are configured. The Next build skips its duplicate internal typecheck to stay within the environment's memory; the build script runs `tsc --noEmit` before invoking Next, so the type gate remains enforced.
