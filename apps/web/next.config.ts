@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     // Use the installed TypeScript compiler API. The CLI runner relies on
     // child-process output capture, which is unavailable in this build runtime.
     useTypeScriptCli: false,
+    webpackBuildWorker: false,
     serverActions: {
       allowedOrigins: ['localhost:3000'],
     },
@@ -16,7 +17,22 @@ const nextConfig: NextConfig = {
       '@x402/evm/exact/client': false,
       '@x402/evm/upto/client': false,
       '@x402/svm/exact/client': false,
+      '@react-native-async-storage/async-storage': false,
+      'pino-pretty': false,
     },
+  },
+  webpack(config) {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@x402/core/client': false,
+      '@x402/evm': false,
+      '@x402/evm/exact/client': false,
+      '@x402/evm/upto/client': false,
+      '@x402/svm/exact/client': false,
+      '@react-native-async-storage/async-storage': false,
+      'pino-pretty': false,
+    }
+    return config
   },
   images: {
     remotePatterns: [
