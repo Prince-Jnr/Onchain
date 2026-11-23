@@ -2,6 +2,9 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   experimental: {
+    // Use the installed TypeScript compiler API. The CLI runner relies on
+    // child-process output capture, which is unavailable in this build runtime.
+    useTypeScriptCli: false,
     serverActions: {
       allowedOrigins: ['localhost:3000'],
     },
