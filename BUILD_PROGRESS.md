@@ -23,7 +23,7 @@ This repository was already populated when work began. It is an uncommitted proj
 | `pnpm --filter @onchain/contracts test` | Pass; 84 tests across 3 suites. |
 | `pnpm --filter @onchain/web typecheck` | Pass after repairing authenticated-session narrowing, Lucide icon exports, search type naming, and recursive API serialization typing. |
 | `pnpm --filter @onchain/web lint` | Pass with 39 warnings remaining. |
-| `pnpm --filter @onchain/web build` | Fail. Added the missing Tailwind v4 PostCSS plugin and config; Turbopack panics while spawning its CSS worker (`Operation not permitted`), including an elevated retry. Webpack build instead fails parsing TypeScript `--showConfig` output. |
+| `pnpm --filter @onchain/web build` | Fail. Added the missing Tailwind v4 PostCSS plugin and config. Turbopack panics while spawning its CSS worker (`Operation not permitted`), including an elevated retry. Switched the build check to Webpack and the TypeScript API; Webpack still fails during compile with no actionable error detail in this runtime. |
 | `pnpm --filter @onchain/web test` | Fail; Vitest reports no test files. |
 | `pnpm --filter @onchain/shared typecheck` | Fail; package has no `tsconfig.json`, so `tsc --noEmit` prints help instead of checking sources. |
 
@@ -47,6 +47,7 @@ This repository was already populated when work began. It is an uncommitted proj
 - Removed the known default session-secret fallback and the silent placeholder database URL.
 - Fixed the TypeScript errors found in the initial web check; web typechecking now passes.
 - Replaced removed Lucide exports and repaired React-effect/JSX lint errors. Lint passes with 39 unused-code and navigation warnings still present.
+- Confirmed that no GitHub repository is required for deployment; local Vercel CLI deployment remains an option once the app build and services are ready.
 
 ## Remaining work
 
