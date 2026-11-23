@@ -22,20 +22,20 @@ This repository was already populated when work began. It is an uncommitted proj
 | `pnpm --filter @onchain/contracts build` | Pass; compiler reports modifier-order lint warnings. |
 | `pnpm --filter @onchain/contracts test` | Pass; 84 tests across 3 suites. |
 | `pnpm --filter @onchain/web typecheck` | Pass after repairing authenticated-session narrowing, Lucide icon exports, search type naming, and recursive API serialization typing. |
-| `pnpm --filter @onchain/web lint` | Pass with 39 warnings remaining. |
+| `pnpm --filter @onchain/web lint` | Pass with 40 warnings remaining before the current transaction/auth changes; rerun below before deployment. |
 | `pnpm build` | Pass. Contracts compile and the Next.js production build completes with Webpack; 23 web routes compiled and static generation completed. |
 | Production smoke check | Pass; local production server returned HTTP 200 for `/` (32,452-byte HTML response). |
-| `pnpm --filter @onchain/web test` | Fail; Vitest reports no test files. |
+| `pnpm --filter @onchain/web test` | Three new content-reference tests pass; no broader frontend suite exists yet. |
 | `pnpm --filter @onchain/shared typecheck` | Fail; package has no `tsconfig.json`, so `tsc --noEmit` prints help instead of checking sources. |
 
 ## Important implementation gaps found
 
-- The post API inserts `ACTIVE` entries into PostgreSQL from client-supplied content and `txHash`; it does not verify the transaction or wait for an indexed contract event. This conflicts with the documented chain-authoritative model and must be fixed before treating posts as blockchain-backed.
-- SIWE verification checks a valid signature and a matching, unused nonce separately; nonce consumption is not an atomic compare-and-set, and the message nonce is not bound to a claimed wallet when the nonce is issued. Review for replay/concurrency issues before production.
+- The post API now only prepares a deterministic content hash. A separate confirmation endpoint checks the actual receipt, sender, target contract, and matching `EntryCreated` event before creating a database record. This path has not yet been exercised against a deployed contract and live database.
+- SIWE nonce consumption is now an atomic update, and production SIWE domain validation uses `NEXT_PUBLIC_APP_URL`. The full SIWE flow remains untested against a configured database/deployment.
 - Session creation now fails closed when `SESSION_SECRET` is absent or shorter than 32 characters.
 - Rate limiters use in-memory maps, so they are process-local and unsuitable as distributed production controls.
 - Database initialization is lazy and fails closed when `DATABASE_URL` is absent. No database is configured, so database-backed runtime routes remain unavailable.
-- Contract writes, database persistence and event indexing are not yet demonstrated as an integrated end-to-end flow.
+- Other social writes still require review: several interactions are currently application/database-layer and must be labeled as such or moved on-chain. The confirmation path is not a replacement for a durable event indexer.
 - `apps/indexer` and `apps/api` directories exist but are empty. There is no standalone database package, migrations directory, CI workflow, or Playwright configuration.
 - No `.env*` files were found. Vercel is authenticated, but no matching project or deployment exists. No RPC, database, WalletConnect, IPFS or deployment secrets were found in the process environment (values were never printed).
 - Playwright 1.65.1 is installed, but no Playwright browser binaries were found; visual inspection has not yet been performed.
@@ -52,7 +52,12 @@ This repository was already populated when work began. It is an uncommitted proj
 - Removed build-time Google Fonts fetching, mirrored optional-module aliases in Webpack, and made database initialization lazy. The Webpack production build now succeeds.
 - Changed the web build script to `next build --webpack`. The full root `pnpm build`, web lint, and a non-overlapping web typecheck pass.
 - Started the production server locally and verified the homepage response, then stopped the server.
+- Replaced direct client-claimed database post creation with a content preparation endpoint plus receipt/event verification before persistence. The composer now uses chain entry IDs for replies/quotes and offers a retry when confirmation indexing fails.
+- Added deterministic content-reference tests (3 passing) and unique database indexes for transaction and media idempotency.
+- Added an authenticated Pinata upload route with MIME and 10 MB size checks. It returns a clear 503 until `PINATA_JWT` is configured; no credential is present here.
+- Made SIWE nonce consumption atomic and bound the accepted production SIWE domain to the configured app URL.
+- Added Base mainnet contract-address environment mapping. No contract has been deployed to populate those addresses.
 
 ## Remaining work
 
-The web build, typecheck and lint gates now pass (with lint warnings), but the product is not production-ready. Priorities are: secure SIWE nonce handling; remove the unverified post-write path; make blockchain/indexer reconciliation authoritative; validate API authorization and moderation; add database migrations and missing infrastructure; then perform UI, integration and deployment checks as credentials permit.
+The code still needs a complete runtime check after these changes. The product is not production-ready: no live database, deployed contract, durable event indexer, distributed rate limiter, media credential, or deployment is configured. Next priorities are an authoritative indexer and migrations, a broader contract-write audit, integration checks with Base Sepolia and PostgreSQL, browser-based visual checks, and then local-directory Vercel deployment after runtime secrets are configured.

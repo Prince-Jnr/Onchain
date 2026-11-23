@@ -93,6 +93,7 @@ export function PostComposer({
     entryType: 'POST' | 'COMMENT' | 'QUOTE'
     parentId: number | null
     referenceId: number | null
+    media: { url: string; ipfsCid: string; mimeType: string; sizeBytes: number }[]
   } | null>(null)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [charWarning, setCharWarning] = useState(false)
@@ -205,8 +206,8 @@ export function PostComposer({
     })
   }
 
-  const uploadMedia = async (previews: MediaPreview[]): Promise<string[]> => {
-    const urls: string[] = []
+  const uploadMedia = async (previews: MediaPreview[]) => {
+    const uploaded: { url: string; ipfsCid: string; mimeType: string; sizeBytes: number }[] = []
     for (const preview of previews) {
       const formData = new FormData()
       formData.append('file', preview.file)
@@ -222,10 +223,10 @@ export function PostComposer({
         throw new Error((body as { error?: string }).error ?? 'Upload failed')
       }
 
-      const data = (await res.json()) as { url: string; ipfsCid?: string }
-      urls.push(data.url)
+      const data = (await res.json()) as { url: string; ipfsCid: string; mimeType: string; sizeBytes: number }
+      uploaded.push(data)
     }
-    return urls
+    return uploaded
   }
 
   const handleSubmit = async () => {
@@ -245,11 +246,12 @@ export function PostComposer({
 
     try {
       // 1. Upload media if any
-      let mediaUrls: string[] = []
+      let uploadedMedia: Awaited<ReturnType<typeof uploadMedia>> = []
       if (mediaFiles.length > 0) {
         setPhase('uploading')
-        mediaUrls = await uploadMedia(mediaFiles)
+        uploadedMedia = await uploadMedia(mediaFiles)
       }
+      const mediaUrls = uploadedMedia.map((item) => item.url)
 
       // 2. Upload content to IPFS via API
       setPhase('preparing')
@@ -277,7 +279,7 @@ export function PostComposer({
       const { contentRef } = (await uploadRes.json()) as {
         contentRef: string
       }
-      setPreparedEntry({ text: text.trim(), mediaUrls, entryType, parentId, referenceId })
+      setPreparedEntry({ text: text.trim(), mediaUrls, entryType, parentId, referenceId, media: uploadedMedia })
 
       // 3. Submit transaction
       setPhase('awaiting_wallet')

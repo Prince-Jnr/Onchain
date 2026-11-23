@@ -4,7 +4,7 @@ import { createPublicClient, decodeEventLog, http, isAddress, isHex } from 'viem
 import { base, baseSepolia } from 'viem/chains'
 import { CHAIN_IDS, ONCHAIN_ENTRIES_ABI } from '@onchain/shared'
 import { db } from '@/lib/db'
-import { entryContent, entries, wallets } from '@/lib/schema'
+import { entryContent, entries, media, wallets } from '@/lib/schema'
 import { getEntryContentReference, createEntryContentDocument } from '@/lib/content-reference'
 import { getAuthenticatedSession } from '@/lib/session'
 
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   const session = await getAuthenticatedSession()
   if (!session) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
 
-  let body: { txHash?: unknown; text?: unknown; mediaUrls?: unknown; entryType?: unknown; parentId?: unknown; referenceId?: unknown }
+  let body: { txHash?: unknown; text?: unknown; mediaUrls?: unknown; media?: unknown; entryType?: unknown; parentId?: unknown; referenceId?: unknown }
   try {
     body = await request.json()
   } catch {
@@ -39,6 +39,19 @@ export async function POST(request: NextRequest) {
     : []
   if (mediaUrls.length > 4 || mediaUrls.some((url) => url.length > 2048)) {
     return NextResponse.json({ error: 'Invalid media URLs' }, { status: 400 })
+  }
+  const mediaItems = Array.isArray(body.media) ? body.media as { url?: unknown; ipfsCid?: unknown; mimeType?: unknown; sizeBytes?: unknown }[] : []
+  const acceptedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+  if (mediaItems.length !== mediaUrls.length || mediaItems.some((item, index) =>
+    item.url !== mediaUrls[index] || typeof item.ipfsCid !== 'string' || !/^bafy[a-z2-7]{20,}$/.test(item.ipfsCid) ||
+    item.url !== `https://gateway.pinata.cloud/ipfs/${item.ipfsCid}` ||
+    typeof item.mimeType !== 'string' || !acceptedMimeTypes.has(item.mimeType) ||
+    typeof item.sizeBytes !== 'number' || !Number.isSafeInteger(item.sizeBytes) || item.sizeBytes <= 0 || item.sizeBytes > 10 * 1024 * 1024
+  )) {
+    return NextResponse.json({ error: 'Media metadata does not match the pinned content URLs' }, { status: 400 })
+  }
+  if (new Set(mediaItems.map((item) => item.ipfsCid)).size !== mediaItems.length) {
+    return NextResponse.json({ error: 'Duplicate image content references are not allowed' }, { status: 400 })
   }
   const parseRef = (value: unknown) => value == null ? 0 : Number(value)
   const parentNumber = parseRef(body.parentId)
@@ -119,6 +132,15 @@ export async function POST(request: NextRequest) {
           mentions: document.mentions,
         })
       }
+      for (const item of mediaItems) {
+        await db.insert(media).values({
+          entryId: existing.id,
+          url: item.url as string,
+          ipfsCid: item.ipfsCid as string,
+          mimeType: item.mimeType as string,
+          sizeBytes: item.sizeBytes as number,
+        }).onConflictDoNothing()
+      }
       return NextResponse.json({ id: existing.id, chainEntryId: existing.chainEntryId, txHash: hash })
     }
 
@@ -161,6 +183,15 @@ export async function POST(request: NextRequest) {
       hashtags: document.hashtags,
       mentions: document.mentions,
     }).returning()
+    for (const item of mediaItems) {
+      await db.insert(media).values({
+        entryId: newEntry.id,
+        url: item.url as string,
+        ipfsCid: item.ipfsCid as string,
+        mimeType: item.mimeType as string,
+        sizeBytes: item.sizeBytes as number,
+      })
+    }
     return NextResponse.json({ id: newEntry.id, chainEntryId: newEntry.chainEntryId, txHash: hash, status: newEntry.status, content: content.text }, { status: 201 })
   } catch (error) {
     console.error('[entries confirm] Verification failed:', error)

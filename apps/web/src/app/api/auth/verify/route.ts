@@ -44,11 +44,16 @@ export async function POST(request: NextRequest) {
   }
 
   // Domain validation
-  const host = request.headers.get('host') ?? ''
-  const expectedDomain = host.split(':')[0] // strip port
-  if (siweMessage.domain !== host && siweMessage.domain !== expectedDomain) {
+  const requestHost = request.headers.get('host') ?? ''
+  const configuredUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (process.env.NODE_ENV === 'production' && !configuredUrl) {
+    return NextResponse.json({ error: 'Application domain is not configured' }, { status: 503 })
+  }
+  const expectedHost = configuredUrl ? new URL(configuredUrl).host : requestHost
+  const expectedDomain = expectedHost.split(':')[0]
+  if (siweMessage.domain !== expectedHost && siweMessage.domain !== expectedDomain) {
     return NextResponse.json(
-      { error: `Domain mismatch: expected ${host}, got ${siweMessage.domain}` },
+      { error: `Domain mismatch: expected ${expectedHost}, got ${siweMessage.domain}` },
       { status: 422 }
     )
   }
@@ -76,21 +81,18 @@ export async function POST(request: NextRequest) {
   const { nonce, chainId } = siweMessage
   const now = new Date()
 
-  // Validate nonce: must exist, not be used, and not be expired
+  // Consume the nonce atomically so concurrent requests cannot replay one signature.
   let nonceRecord: typeof siweNonces.$inferSelect | undefined
   try {
     const rows = await db
-      .select()
-      .from(siweNonces)
-      .where(
-        and(
-          eq(siweNonces.nonce, nonce),
-          eq(siweNonces.used, false),
-          gt(siweNonces.expiresAt, now)
-        )
-      )
-      .limit(1)
-
+      .update(siweNonces)
+      .set({ used: true, walletAddress: address })
+      .where(and(
+        eq(siweNonces.nonce, nonce),
+        eq(siweNonces.used, false),
+        gt(siweNonces.expiresAt, now),
+      ))
+      .returning()
     nonceRecord = rows[0]
   } catch (err) {
     console.error('[auth/verify] Nonce lookup failed:', err)
@@ -102,17 +104,6 @@ export async function POST(request: NextRequest) {
       { error: 'Invalid, expired, or already-used nonce' },
       { status: 422 }
     )
-  }
-
-  // Mark nonce as used (single-use guarantee)
-  try {
-    await db
-      .update(siweNonces)
-      .set({ used: true, walletAddress: address })
-      .where(eq(siweNonces.id, nonceRecord.id))
-  } catch (err) {
-    console.error('[auth/verify] Failed to mark nonce used:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 
   // Upsert the wallet record

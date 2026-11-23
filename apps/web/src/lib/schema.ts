@@ -258,6 +258,7 @@ export const media = pgTable(
   },
   (t) => [
     index('media_entry_idx').on(t.entryId),
+    uniqueIndex('media_entry_cid_unique_idx').on(t.entryId, t.ipfsCid),
   ]
 )
 

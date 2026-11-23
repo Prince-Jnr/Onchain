@@ -99,18 +99,6 @@ function serializeEntry(
   }
 }
 
-/** Extract hashtags from text: #word */
-function extractHashtags(text: string): string[] {
-  const matches = text.match(/#([a-zA-Z0-9_]+)/g) ?? []
-  return [...new Set(matches.map((t) => t.slice(1).toLowerCase()))]
-}
-
-/** Extract Ethereum address mentions: @0x... */
-function extractMentions(text: string): string[] {
-  const matches = text.match(/@(0x[a-fA-F0-9]{40})\b/g) ?? []
-  return [...new Set(matches.map((m) => m.slice(1).toLowerCase()))]
-}
-
 // ---------------------------------------------------------------------------
 // POST /api/entries — Create a new entry
 // ---------------------------------------------------------------------------
