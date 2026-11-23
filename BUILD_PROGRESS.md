@@ -36,7 +36,7 @@ This repository was already populated when work began. It is an uncommitted proj
 - Rate limiters use in-memory maps, so they are process-local and unsuitable as distributed production controls.
 - Database initialization is lazy and fails closed when `DATABASE_URL` is absent. No database is configured, so database-backed runtime routes remain unavailable.
 - Other social writes still require review: several interactions are currently application/database-layer and must be labeled as such or moved on-chain. The confirmation path is not a replacement for a durable event indexer.
-- `apps/indexer` and `apps/api` directories exist but are empty. There is no standalone database package, migrations directory, CI workflow, or Playwright configuration.
+- `apps/indexer` and `apps/api` directories exist but are empty. The Drizzle schema and migration tooling are in the web app, with the first migration generated; there is no durable indexer, CI workflow, or Playwright configuration.
 - No `.env*` files were found. Vercel is authenticated, but no matching project or deployment exists. No RPC, database, WalletConnect, IPFS or deployment secrets were found in the process environment (values were never printed).
 - Playwright 1.65.1 is installed, but no Playwright browser binaries were found; visual inspection has not yet been performed.
 - Vercel is now authenticated. A project search for `onchain` and matching deployment search both returned zero results; this checkout has no `.vercel/project.json` or Git remote, so it is not linked to a Vercel project.
@@ -57,6 +57,7 @@ This repository was already populated when work began. It is an uncommitted proj
 - Added an authenticated Pinata upload route with MIME and 10 MB size checks. It returns a clear 503 until `PINATA_JWT` is configured; no credential is present here.
 - Made SIWE nonce consumption atomic and bound the accepted production SIWE domain to the configured app URL.
 - Added Base mainnet contract-address environment mapping. No contract has been deployed to populate those addresses.
+- Added a Drizzle Kit config, fixed root database scripts to target the actual web package, and generated the initial PostgreSQL migration. The migration has not been applied because no database is configured.
 
 ## Remaining work
 

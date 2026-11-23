@@ -23,7 +23,7 @@ Configure secrets in the hosting provider's environment settings. Do not commit 
 ## Testnet deployment sequence
 
 1. Create a PostgreSQL database, Pinata account, and WalletConnect project. Add the values above to a local ignored `.env.local` for development and to Vercel's Preview/Production environments as appropriate.
-2. Apply the database schema using a reviewed migration. This repository currently has no generated Drizzle migrations.
+2. Apply the committed Drizzle migration with `pnpm db:migrate` before starting the app. Future schema changes go through `pnpm db:generate`, review the generated SQL under `apps/web/drizzle`, and apply them with `pnpm db:migrate`.
 3. Deploy contracts to Base Sepolia from `packages/contracts` using the provided `script/Deploy.s.sol` and a funded test wallet. Set `PRIVATE_KEY` and `BASE_SEPOLIA_RPC_URL` only in the deployment shell's secure environment.
 4. Record the four deployed addresses. Set the Entries address in web environments; configure other addresses before enabling their contract interactions.
 5. Verify contracts with Foundry and `BASESCAN_API_KEY`. Run contract tests and the app's configured runtime checks against the same Base Sepolia deployment and database.

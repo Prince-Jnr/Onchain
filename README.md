@@ -11,7 +11,7 @@ ONCHAIN is an in-progress wallet-based social guestbook. This repository contain
 - Four Solidity contracts and Foundry tests for entries, social interactions, profiles, and moderation.
 - Shared TypeScript package for contract ABIs and common types.
 
-The indexer, database migrations, media upload service, and several advertised API features are not implemented yet. In particular, do not treat database post records as verified chain events. See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for the audit, current checks, and critical gaps.
+The post path now prepares a deterministic content hash and only persists entries after server-side verification of a confirmed transaction and its `EntryCreated` event. Image uploads use Pinata when `PINATA_JWT` is configured, and an initial Drizzle migration is included. The durable event indexer and several advertised API features are still missing, so the app is not production-ready. See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for current verification and gaps.
 
 ## Requirements
 
@@ -19,6 +19,7 @@ The indexer, database migrations, media upload service, and several advertised A
 - pnpm 10.
 - Foundry for contract builds and tests.
 - A configured PostgreSQL database and `SESSION_SECRET` (at least 32 characters) to use authenticated web API routes.
+- Pinata `PINATA_JWT` for image uploads and a WalletConnect project ID for WalletConnect-compatible wallets.
 
 ## Local development
 
@@ -38,11 +39,11 @@ pnpm --filter @onchain/contracts build
 pnpm --filter @onchain/contracts test
 ```
 
-The web test script currently has no tests. The production web build passes with the configured Webpack builder, and a local production-server check returned HTTP 200 for `/`. Contract tests currently pass (84 tests).
+The web content-reference tests pass (3 tests). The production web build passes with the configured Webpack builder. Contract tests previously passed (84 tests); rerun them before deployment. There is no configured database or live contract to verify the wallet-to-database flow.
 
 ## Deployments
 
-There is no ONCHAIN Vercel project or deployment linked to this checkout. It has no Git remote or `.vercel/project.json`. The Vercel account was checked and returned no matching `onchain` project or deployment. Do not publish until the build, required backend services, and environment configuration are ready.
+There is no ONCHAIN Vercel project or deployment linked to this checkout. A GitHub repository is not required; see [DEPLOYMENT.md](DEPLOYMENT.md) for the local CLI deployment route and required services. Do not publish until the required database, contract, RPC, and storage configuration is ready and the runtime path has been tested.
 
 ## Project notes
 
@@ -50,3 +51,4 @@ There is no ONCHAIN Vercel project or deployment linked to this checkout. It has
 - [Build progress and audit](BUILD_PROGRESS.md)
 - [Engineering decisions](DECISIONS.md)
 - [Security notes](SECURITY.md)
+- [Deployment steps and required configuration](DEPLOYMENT.md)

@@ -105,12 +105,20 @@ export function PostComposer({
   const contractAddress = CONTRACT_ADDRESSES[chainId]?.entries
 
   const { writeContract, isPending: isWritePending } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+  const { isLoading: isConfirming, isSuccess: isConfirmed, isError: isReceiptError, error: receiptError } = useWaitForTransactionReceipt({
     hash: txHash as `0x${string}` | undefined,
     query: { enabled: !!txHash },
   })
 
   const isPending = isWritePending || isConfirming || phase === 'uploading'
+
+  useEffect(() => {
+    if (!isReceiptError || phase !== 'submitted') return
+    setPhase('failed')
+    toast.error(receiptError instanceof Error
+      ? `Transaction could not be confirmed: ${receiptError.message}`
+      : 'Transaction could not be confirmed. Check the explorer before retrying.')
+  }, [isReceiptError, phase, receiptError])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -469,7 +477,7 @@ export function PostComposer({
           )}
 
           {/* Transaction status */}
-          {phase !== 'idle' && phase !== 'failed' && (
+          {phase !== 'idle' && (
             <div className="mt-2 space-y-1">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 {phase === 'uploading' && (
@@ -499,8 +507,11 @@ export function PostComposer({
                 {phase === 'confirmed' && (
                   <span className="text-onchain font-medium">Published on-chain ✓</span>
                 )}
+                {phase === 'failed' && (
+                  <span className="text-destructive">Transaction or confirmation failed. Your draft is still here.</span>
+                )}
               </div>
-              {txExplorerUrl && phase === 'submitted' && (
+              {txExplorerUrl && (
                 <a
                   href={txExplorerUrl}
                   target="_blank"

@@ -19,9 +19,9 @@
     "test:contracts": "pnpm --filter @onchain/contracts test",
     "test:web": "pnpm --filter @onchain/web test",
     "test:e2e": "pnpm --filter @onchain/web test:e2e",
-    "db:generate": "pnpm --filter @onchain/database generate",
-    "db:migrate": "pnpm --filter @onchain/database migrate",
-    "db:push": "pnpm --filter @onchain/database push",
+    "db:generate": "pnpm --filter @onchain/web db:generate",
+    "db:migrate": "pnpm --filter @onchain/web db:migrate",
+    "db:push": "pnpm --filter @onchain/web db:push",
     "clean": "pnpm -r clean && rm -rf node_modules"
   },
   "workspaces": [
