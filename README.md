@@ -38,7 +38,7 @@ pnpm --filter @onchain/contracts build
 pnpm --filter @onchain/contracts test
 ```
 
-The web test script currently has no tests. The current production web build fails in the local environment; refer to the build journal for the exact failure. Contract tests currently pass (84 tests).
+The web test script currently has no tests. The production web build passes with the configured Webpack builder, and a local production-server check returned HTTP 200 for `/`. Contract tests currently pass (84 tests).
 
 ## Deployments
 

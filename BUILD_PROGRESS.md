@@ -23,7 +23,8 @@ This repository was already populated when work began. It is an uncommitted proj
 | `pnpm --filter @onchain/contracts test` | Pass; 84 tests across 3 suites. |
 | `pnpm --filter @onchain/web typecheck` | Pass after repairing authenticated-session narrowing, Lucide icon exports, search type naming, and recursive API serialization typing. |
 | `pnpm --filter @onchain/web lint` | Pass with 39 warnings remaining. |
-| `pnpm --filter @onchain/web build` | Fail. Added the missing Tailwind v4 PostCSS plugin and config. Turbopack panics while spawning its CSS worker (`Operation not permitted`), including an elevated retry. Switched the build check to Webpack and the TypeScript API; Webpack still fails during compile with no actionable error detail in this runtime. |
+| `pnpm build` | Pass. Contracts compile and the Next.js production build completes with Webpack; 23 web routes compiled and static generation completed. |
+| Production smoke check | Pass; local production server returned HTTP 200 for `/` (32,452-byte HTML response). |
 | `pnpm --filter @onchain/web test` | Fail; Vitest reports no test files. |
 | `pnpm --filter @onchain/shared typecheck` | Fail; package has no `tsconfig.json`, so `tsc --noEmit` prints help instead of checking sources. |
 
@@ -33,22 +34,25 @@ This repository was already populated when work began. It is an uncommitted proj
 - SIWE verification checks a valid signature and a matching, unused nonce separately; nonce consumption is not an atomic compare-and-set, and the message nonce is not bound to a claimed wallet when the nonce is issued. Review for replay/concurrency issues before production.
 - Session creation now fails closed when `SESSION_SECRET` is absent or shorter than 32 characters.
 - Rate limiters use in-memory maps, so they are process-local and unsuitable as distributed production controls.
-- `apps/web/src/lib/db.ts` constructs a placeholder localhost database URL when `DATABASE_URL` is absent. Routes guard some calls, but a shared fail-closed database configuration is needed.
+- Database initialization is lazy and fails closed when `DATABASE_URL` is absent. No database is configured, so database-backed runtime routes remain unavailable.
 - Contract writes, database persistence and event indexing are not yet demonstrated as an integrated end-to-end flow.
-- There is no `apps/indexer`, standalone database package, migrations directory, CI workflow, Playwright configuration, or root README in the inspected tree.
-- No `.env*` files were found. The Vercel connection is configured but currently requires reauthentication. No RPC, database, WalletConnect, IPFS or deployment secrets were found in the process environment (values were never printed).
+- `apps/indexer` and `apps/api` directories exist but are empty. There is no standalone database package, migrations directory, CI workflow, or Playwright configuration.
+- No `.env*` files were found. Vercel is authenticated, but no matching project or deployment exists. No RPC, database, WalletConnect, IPFS or deployment secrets were found in the process environment (values were never printed).
 - Playwright 1.65.1 is installed, but no Playwright browser binaries were found; visual inspection has not yet been performed.
 - Vercel is now authenticated. A project search for `onchain` and matching deployment search both returned zero results; this checkout has no `.vercel/project.json` or Git remote, so it is not linked to a Vercel project.
 
 ## Changes made during this audit
 
 - Replaced the stale progress report with the verified inventory and check results.
-- Added the missing `@tailwindcss/postcss` dependency and Tailwind v4 PostCSS configuration. CSS worker/build problems remain unresolved.
+- Added the missing `@tailwindcss/postcss` dependency and Tailwind v4 PostCSS configuration.
 - Removed the known default session-secret fallback and the silent placeholder database URL.
 - Fixed the TypeScript errors found in the initial web check; web typechecking now passes.
 - Replaced removed Lucide exports and repaired React-effect/JSX lint errors. Lint passes with 39 unused-code and navigation warnings still present.
 - Confirmed that no GitHub repository is required for deployment; local Vercel CLI deployment remains an option once the app build and services are ready.
+- Removed build-time Google Fonts fetching, mirrored optional-module aliases in Webpack, and made database initialization lazy. The Webpack production build now succeeds.
+- Changed the web build script to `next build --webpack`. The full root `pnpm build`, web lint, and a non-overlapping web typecheck pass.
+- Started the production server locally and verified the homepage response, then stopped the server.
 
 ## Remaining work
 
-The current implementation must be corrected and verified before the product can be called production-ready. Priorities are: fix build/type/lint failures; secure SIWE and session handling; remove the unverified post-write path; make blockchain/indexer reconciliation authoritative; validate API authorization and moderation; add database migrations and missing infrastructure; then perform UI, integration and deployment checks as credentials permit.
+The web build, typecheck and lint gates now pass (with lint warnings), but the product is not production-ready. Priorities are: secure SIWE nonce handling; remove the unverified post-write path; make blockchain/indexer reconciliation authoritative; validate API authorization and moderation; add database migrations and missing infrastructure; then perform UI, integration and deployment checks as credentials permit.
