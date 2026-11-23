@@ -1,0 +1,31 @@
+{
+  "name": "onchain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ONCHAIN — Decentralized social guestbook and community platform",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @onchain/web dev",
+    "dev:all": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @onchain/web build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:contracts": "pnpm --filter @onchain/contracts test",
+    "test:web": "pnpm --filter @onchain/web test",
+    "test:e2e": "pnpm --filter @onchain/web test:e2e",
+    "db:generate": "pnpm --filter @onchain/database generate",
+    "db:migrate": "pnpm --filter @onchain/database migrate",
+    "db:push": "pnpm --filter @onchain/database push",
+    "clean": "pnpm -r clean && rm -rf node_modules"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
