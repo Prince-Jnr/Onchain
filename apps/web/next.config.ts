@@ -2,6 +2,8 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   experimental: {
+    // Keep production builds within the memory budget of small CI runners.
+    cpus: 2,
     // Use the installed TypeScript compiler API. The CLI runner relies on
     // child-process output capture, which is unavailable in this build runtime.
     useTypeScriptCli: false,
@@ -9,6 +11,11 @@ const nextConfig: NextConfig = {
     serverActions: {
       allowedOrigins: ['localhost:3000'],
     },
+  },
+  // The build script runs `tsc --noEmit` first; avoid a second memory-heavy
+  // typecheck inside Next's worker after Webpack has already compiled sources.
+  typescript: {
+    ignoreBuildErrors: true,
   },
   turbopack: {
     resolveAlias: {

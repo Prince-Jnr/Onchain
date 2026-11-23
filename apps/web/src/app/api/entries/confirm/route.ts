@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
-import { createPublicClient, decodeEventLog, http, isAddress, isHex } from 'viem'
-import { base, baseSepolia } from 'viem/chains'
+import { createPublicClient, decodeEventLog, defineChain, http, isAddress, isHex } from 'viem'
 import { CHAIN_IDS, ONCHAIN_ENTRIES_ABI } from '@onchain/shared'
 import { db } from '@/lib/db'
 import { entryContent, entries, media, wallets } from '@/lib/schema'
@@ -9,6 +8,20 @@ import { getEntryContentReference, createEntryContentDocument } from '@/lib/cont
 import { getAuthenticatedSession } from '@/lib/session'
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+const baseMainnet = defineChain({
+  id: CHAIN_IDS.BASE,
+  name: 'Base',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['https://mainnet.base.org'] } },
+  blockExplorers: { default: { name: 'Basescan', url: 'https://basescan.org' } },
+})
+const baseSepolia = defineChain({
+  id: CHAIN_IDS.BASE_SEPOLIA,
+  name: 'Base Sepolia',
+  nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['https://sepolia.base.org'] } },
+  blockExplorers: { default: { name: 'Basescan', url: 'https://sepolia.basescan.org' } },
+})
 
 export async function POST(request: NextRequest) {
   if (!process.env.DATABASE_URL) {
@@ -68,7 +81,7 @@ export async function POST(request: NextRequest) {
   }
 
   const chainId = session.chainId
-  const chain = chainId === CHAIN_IDS.BASE_SEPOLIA ? baseSepolia : chainId === CHAIN_IDS.BASE ? base : null
+  const chain = chainId === CHAIN_IDS.BASE_SEPOLIA ? baseSepolia : chainId === CHAIN_IDS.BASE ? baseMainnet : null
   const contractValue = chainId === CHAIN_IDS.BASE_SEPOLIA
     ? process.env.NEXT_PUBLIC_ENTRIES_ADDRESS_SEPOLIA
     : chainId === CHAIN_IDS.BASE ? process.env.NEXT_PUBLIC_ENTRIES_ADDRESS : undefined
@@ -150,6 +163,11 @@ export async function POST(request: NextRequest) {
 
     const status = (['ACTIVE', 'DELETED', 'HIDDEN', 'PENDING', 'REJECTED'] as const)[Number(event.status)]
     if (!status) return NextResponse.json({ error: 'Contract emitted an unknown entry status' }, { status: 422 })
+    const chainEntryId = Number(event.entryId)
+    const chainTimestamp = Number(event.timestamp)
+    if (!Number.isSafeInteger(chainEntryId) || chainEntryId <= 0 || !Number.isSafeInteger(chainTimestamp)) {
+      return NextResponse.json({ error: 'Entry event values exceed the supported database range' }, { status: 422 })
+    }
     let localParentId: number | null = null
     let localReferenceId: number | null = null
     if (parentNumber || referenceNumber) {
@@ -164,7 +182,7 @@ export async function POST(request: NextRequest) {
     }
     const block = await client.getBlock({ blockNumber: receipt.blockNumber })
     const [newEntry] = await db.insert(entries).values({
-      chainEntryId: Number(event.entryId),
+      chainEntryId,
       txHash: hash,
       blockNumber: Number(receipt.blockNumber),
       logIndex: matched.logIndex,
@@ -173,7 +191,7 @@ export async function POST(request: NextRequest) {
       parentId: localParentId,
       referenceId: localReferenceId,
       contentRef,
-      chainCreatedAt: new Date(Number(event.timestamp) * 1000),
+      chainCreatedAt: new Date(chainTimestamp * 1000),
       createdAt: new Date(Number(block.timestamp) * 1000),
       status,
     }).returning()

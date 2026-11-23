@@ -105,20 +105,13 @@ export function PostComposer({
   const contractAddress = CONTRACT_ADDRESSES[chainId]?.entries
 
   const { writeContract, isPending: isWritePending } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess: isConfirmed, isError: isReceiptError, error: receiptError } = useWaitForTransactionReceipt({
+  const { isLoading: isConfirming, isSuccess: isConfirmed, isError: isReceiptError } = useWaitForTransactionReceipt({
     hash: txHash as `0x${string}` | undefined,
     query: { enabled: !!txHash },
   })
 
   const isPending = isWritePending || isConfirming || phase === 'uploading'
-
-  useEffect(() => {
-    if (!isReceiptError || phase !== 'submitted') return
-    setPhase('failed')
-    toast.error(receiptError instanceof Error
-      ? `Transaction could not be confirmed: ${receiptError.message}`
-      : 'Transaction could not be confirmed. Check the explorer before retrying.')
-  }, [isReceiptError, phase, receiptError])
+  const displayPhase = isReceiptError && phase === 'submitted' ? 'failed' : phase
 
   // Auto-resize textarea
   useEffect(() => {
@@ -477,37 +470,37 @@ export function PostComposer({
           )}
 
           {/* Transaction status */}
-          {phase !== 'idle' && (
+          {displayPhase !== 'idle' && (
             <div className="mt-2 space-y-1">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {phase === 'uploading' && (
+                {displayPhase === 'uploading' && (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Uploading media…
                   </>
                 )}
-                {phase === 'preparing' && (
+                {displayPhase === 'preparing' && (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" />
                   Preparing content reference…
                   </>
                 )}
-                {phase === 'awaiting_wallet' && (
+                {displayPhase === 'awaiting_wallet' && (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Waiting for wallet approval…
                   </>
                 )}
-                {phase === 'submitted' && (
+                {displayPhase === 'submitted' && (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Broadcasting to Base…
                   </>
                 )}
-                {phase === 'confirmed' && (
+                {displayPhase === 'confirmed' && (
                   <span className="text-onchain font-medium">Published on-chain ✓</span>
                 )}
-                {phase === 'failed' && (
+                {displayPhase === 'failed' && (
                   <span className="text-destructive">Transaction or confirmation failed. Your draft is still here.</span>
                 )}
               </div>
