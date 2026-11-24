@@ -518,10 +518,236 @@ async function updateSocialProjection(tx: Parameters<Parameters<typeof db.transa
 }
 
 async function updateProjection(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], contractName: string, log: Log, reversed = false) {
-  if (contractName === 'entries') return updateEntryProjection(tx, log, reversed)
-  if (contractName === 'social') return updateSocialProjection(tx, log, reversed)
+  if (contractName === 'entries') {
+    await updateEntryProjection(tx, log, reversed)
+    await updateNotificationsProjection(tx, log, reversed)
+    return
+  }
+  if (contractName === 'social') {
+    await updateSocialProjection(tx, log, reversed)
+    await updateNotificationsProjection(tx, log, reversed)
+    return
+  }
   if (contractName === 'profiles') return updateProfileProjection(tx, log, reversed)
-  if (contractName === 'moderation') return updateModerationProjection(tx, log, reversed)
+  if (contractName === 'moderation') {
+    await updateModerationProjection(tx, log, reversed)
+    await updateAppConfigProjection(tx, log, reversed)
+    await updateNotificationsProjection(tx, log, reversed)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (app layer) — derived from chain events
+// ---------------------------------------------------------------------------
+
+type NotificationTypeName =
+  | 'REPLY' | 'COMMENT' | 'MENTION' | 'REPOST' | 'QUOTE' | 'REACTION' | 'FOLLOW' | 'MODERATION' | 'ADMIN_ANNOUNCEMENT'
+
+async function insertNotification(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  recipient: string,
+  type: NotificationTypeName,
+  actor: string | null,
+  targetEntryId: number | null,
+  timestamp: Date,
+) {
+  await tx.insert(schema.notifications).values({
+    recipientAddress: recipient.toLowerCase(),
+    type,
+    actorAddress: actor ? actor.toLowerCase() : null,
+    targetEntryId,
+    createdAt: timestamp,
+  }).onConflictDoNothing({
+    target: [schema.notifications.recipientAddress, schema.notifications.type, schema.notifications.actorAddress, schema.notifications.targetEntryId],
+  })
+}
+
+async function updateNotificationsProjection(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  log: Log,
+  reversed = false,
+) {
+  const decodedEntries = decodeEntryLog(log)
+  if (decodedEntries) return updateEntryNotifications(tx, log, decodedEntries, reversed)
+
+  const decodedSocial = decodeSocialLog(log)
+  if (decodedSocial) return updateSocialNotifications(tx, decodedSocial)
+
+  const decodedModeration = decodeModerationLog(log)
+  if (decodedModeration) return updateModerationNotifications(tx, decodedModeration, reversed)
+}
+
+async function updateEntryNotifications(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  log: Log,
+  decoded: NonNullable<ReturnType<typeof decodeEntryLog>>,
+  reversed: boolean,
+) {
+  {
+    const timestamp = 'timestamp' in decoded.args && typeof decoded.args.timestamp === 'bigint'
+      ? new Date(Number(decoded.args.timestamp) * 1000)
+      : new Date()
+
+    if (decoded.eventName === 'EntryCreated' &&
+        'author' in decoded.args && typeof decoded.args.author === 'string' &&
+        'entryType' in decoded.args && typeof decoded.args.entryType === 'number' &&
+        'parentId' in decoded.args && typeof decoded.args.parentId === 'bigint' &&
+        'referenceId' in decoded.args && typeof decoded.args.referenceId === 'bigint' &&
+        'contentRef' in decoded.args && typeof decoded.args.contentRef === 'string') {
+      const actor = decoded.args.author.toLowerCase()
+      const parentChainId = Number(decoded.args.parentId)
+      const referenceChainId = Number(decoded.args.referenceId)
+      if (decoded.args.entryType === 1 && parentChainId > 0 && !reversed) {
+        // COMMENT — notify the parent's author
+        const [parent] = await tx.select({ authorAddress: schema.entries.authorAddress })
+          .from(schema.entries).where(eq(schema.entries.chainEntryId, parentChainId)).limit(1)
+        if (parent?.authorAddress && parent.authorAddress.toLowerCase() !== actor) {
+          await insertNotification(tx, parent.authorAddress, 'REPLY', actor, null, timestamp)
+        }
+      }
+      if (decoded.args.entryType === 2 && referenceChainId > 0 && !reversed) {
+        // QUOTE — notify the referenced entry's author
+        const [reference] = await tx.select({ authorAddress: schema.entries.authorAddress })
+          .from(schema.entries).where(eq(schema.entries.chainEntryId, referenceChainId)).limit(1)
+        if (reference?.authorAddress && reference.authorAddress.toLowerCase() !== actor) {
+          await insertNotification(tx, reference.authorAddress, 'QUOTE', actor, null, timestamp)
+        }
+      }
+      if (!reversed && 'entryId' in decoded.args && typeof decoded.args.entryId === 'bigint') {
+        // MENTIONS — parsed from the canonical entry content
+        const chainEntryId = Number(decoded.args.entryId)
+        const [entry] = await tx.select({ id: schema.entries.id })
+          .from(schema.entries).where(eq(schema.entries.chainEntryId, chainEntryId)).limit(1)
+        if (entry) {
+          const [contentRow] = await tx.select({ mentions: schema.entryContent.mentions })
+            .from(schema.entryContent).where(eq(schema.entryContent.entryId, entry.id)).limit(1)
+          if (contentRow) {
+            const mentions = (contentRow.mentions ?? [])
+              .filter((m): m is string => typeof m === 'string' && m.startsWith('0x') && m.length === 42)
+              .filter((m) => m.toLowerCase() !== actor)
+            for (const mentioned of new Set(mentions)) {
+              await insertNotification(tx, mentioned, 'MENTION', actor, entry.id, timestamp)
+            }
+          }
+        }
+      }
+      return
+    }
+
+    if (decoded.eventName === 'EntryStatusChanged' && 'entryId' in decoded.args &&
+        typeof decoded.args.entryId === 'bigint' && 'newStatus' in decoded.args && typeof decoded.args.newStatus === 'number' &&
+        'changedBy' in decoded.args && typeof decoded.args.changedBy === 'string') {
+      const entryId = Number(decoded.args.entryId)
+      const newStatus = ['ACTIVE', 'DELETED', 'HIDDEN', 'PENDING', 'REJECTED'][decoded.args.newStatus] ?? null
+      const actor = decoded.args.changedBy.toLowerCase()
+      const [entry] = await tx.select({ authorAddress: schema.entries.authorAddress })
+        .from(schema.entries).where(eq(schema.entries.chainEntryId, entryId)).limit(1)
+      if (!entry || !entry.authorAddress) return
+      const recipient = entry.authorAddress.toLowerCase()
+      const timestamp = 'timestamp' in decoded.args && typeof decoded.args.timestamp === 'bigint'
+        ? new Date(Number(decoded.args.timestamp) * 1000)
+        : new Date()
+      if (reversed) {
+        await tx.delete(schema.notifications).where(and(
+          eq(schema.notifications.recipientAddress, recipient),
+          eq(schema.notifications.type, 'MODERATION'),
+        ))
+      } else if (newStatus === 'HIDDEN' || newStatus === 'REJECTED' || newStatus === 'DELETED') {
+        await insertNotification(tx, recipient, 'MODERATION', actor, entryId, timestamp)
+      }
+    }
+    return
+  }
+}
+
+async function updateSocialNotifications(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  decoded: NonNullable<ReturnType<typeof decodeSocialLog>>,
+) {
+  {
+    const timestamp = 'timestamp' in decoded.args && typeof decoded.args.timestamp === 'bigint'
+      ? new Date(Number(decoded.args.timestamp) * 1000)
+      : new Date()
+
+    if (decoded.eventName === 'ReactionAdded' && 'entryId' in decoded.args && typeof decoded.args.entryId === 'bigint' &&
+        'user' in decoded.args && typeof decoded.args.user === 'string') {
+      const chainEntryId = Number(decoded.args.entryId)
+      const actor = decoded.args.user.toLowerCase()
+      const [entry] = await tx.select({ id: schema.entries.id, authorAddress: schema.entries.authorAddress })
+        .from(schema.entries).where(eq(schema.entries.chainEntryId, chainEntryId)).limit(1)
+      if (entry?.authorAddress && entry.authorAddress.toLowerCase() !== actor) {
+        await insertNotification(tx, entry.authorAddress, 'REACTION', actor, entry.id, timestamp)
+      }
+      return
+    }
+
+    if ((decoded.eventName === 'Reposted' || decoded.eventName === 'Unreposted') &&
+        'entryId' in decoded.args && typeof decoded.args.entryId === 'bigint' &&
+        'user' in decoded.args && typeof decoded.args.user === 'string') {
+      const chainEntryId = Number(decoded.args.entryId)
+      const actor = decoded.args.user.toLowerCase()
+      const [entry] = await tx.select({ id: schema.entries.id, authorAddress: schema.entries.authorAddress })
+        .from(schema.entries).where(eq(schema.entries.chainEntryId, chainEntryId)).limit(1)
+      if (entry?.authorAddress && entry.authorAddress.toLowerCase() !== actor && decoded.eventName === 'Reposted') {
+        await insertNotification(tx, entry.authorAddress, 'REPOST', actor, entry.id, timestamp)
+      }
+      return
+    }
+
+    if (decoded.eventName === 'Followed' &&
+        'follower' in decoded.args && typeof decoded.args.follower === 'string' &&
+        'followed' in decoded.args && typeof decoded.args.followed === 'string') {
+      const followed = decoded.args.followed.toLowerCase()
+      await insertNotification(tx, followed, 'FOLLOW', decoded.args.follower.toLowerCase(), null, timestamp)
+      return
+    }
+  }
+}
+
+async function updateModerationNotifications(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  decoded: NonNullable<ReturnType<typeof decodeModerationLog>>,
+  reversed = false,
+) {
+  {
+    if (decoded.eventName === 'ReportSubmitted' && 'reportId' in decoded.args &&
+        'reporter' in decoded.args && typeof decoded.args.reporter === 'string' &&
+        'targetEntryId' in decoded.args && 'targetWallet' in decoded.args &&
+        typeof decoded.args.targetEntryId === 'bigint' &&
+        'timestamp' in decoded.args && typeof decoded.args.timestamp === 'bigint') {
+      const timestamp = new Date(Number(decoded.args.timestamp) * 1000)
+      // Target the referenced entry; skip when it has no indexed entry row yet.
+      const [entry] = decoded.args.targetEntryId
+        ? await tx.select({ id: schema.entries.id }).from(schema.entries)
+            .where(eq(schema.entries.chainEntryId, Number(decoded.args.targetEntryId))).limit(1)
+        : []
+      if (!entry) return
+      const [target] = await tx.select({ authorAddress: schema.entries.authorAddress })
+        .from(schema.entries).where(eq(schema.entries.id, entry.id)).limit(1)
+      if (target?.authorAddress) {
+        await insertNotification(tx, target.authorAddress, 'MODERATION', decoded.args.reporter.toLowerCase(), entry.id, timestamp)
+      }
+    }
+  }
+}
+
+async function updateAppConfigProjection(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  log: Log,
+  reversed = false,
+) {
+  const decoded = decodeModerationLog(log)
+  if (decoded?.eventName === 'ModerationModeChanged' && 'mode' in decoded.args && typeof decoded.args.mode === 'number') {
+    const mode = ['OPEN', 'TRUSTED', 'STRICT', 'EVENT'][decoded.args.mode] ?? 'OPEN'
+    await tx.insert(schema.appConfig).values({
+      key: 'moderationMode',
+      value: mode,
+      updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: schema.appConfig.key,
+      set: { value: mode, updatedAt: new Date() },
+    })
+  }
 }
 
 async function rollbackToCommonBlock(contract: { name: string; address: string }, checkpoint: typeof schema.indexerCheckpoints.$inferSelect) {

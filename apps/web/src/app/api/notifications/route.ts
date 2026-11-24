@@ -9,24 +9,13 @@ import {
   entryContent,
 } from '@/lib/schema'
 import { getAuthenticatedSession } from '@/lib/session'
+import { checkRateLimit as pgCheckRateLimit } from '@/lib/rate-limit'
 
 // ---------------------------------------------------------------------------
-// Rate limiting
-// ---------------------------------------------------------------------------
-const rateLimitMap = new Map<string, { count: number; windowStart: number }>()
-const RATE_LIMIT_WINDOW_MS = 60_000
-const RATE_LIMIT_MAX = 120
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now()
-  const entry = rateLimitMap.get(ip)
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitMap.set(ip, { count: 1, windowStart: now })
-    return true
-  }
-  if (entry.count >= RATE_LIMIT_MAX) return false
-  entry.count += 1
-  return true
+// Rate limiting (distributed, PostgreSQL-backed)
+async function checkRateLimit(ip: string): Promise<boolean> {
+  const result = await pgCheckRateLimit(`notifications:${ip}`, { max: 120, windowMs: 60_000 })
+  return result.allowed
 }
 
 // ---------------------------------------------------------------------------
@@ -46,7 +35,7 @@ export async function GET(request: NextRequest) {
     request.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
     request.headers.get('x-real-ip') ??
     '127.0.0.1'
-  if (!checkRateLimit(ip)) {
+  if (!(await checkRateLimit(ip))) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
 

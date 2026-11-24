@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications'
 import {
   Bell,
   MessageCircle,
@@ -229,6 +230,7 @@ export function NotificationsClient() {
   const [activeFilter, setActiveFilter] = useState<NotificationFilter>('all')
   const [localUnread, setLocalUnread] = useState<Set<string>>(new Set())
   const queryClient = useQueryClient()
+  useRealtimeNotifications()
 
   const {
     data,

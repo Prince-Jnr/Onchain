@@ -195,3 +195,28 @@ export const indexedBlocks = pgTable('indexed_blocks', {
   primaryKey({ columns: [table.chainId, table.contractName, table.blockNumber] }),
   index('indexed_blocks_recent_idx').on(table.chainId, table.contractName, table.blockNumber),
 ])
+
+export const notificationTypeEnum = pgEnum('notification_type', [
+  'REPLY', 'COMMENT', 'MENTION', 'REPOST', 'QUOTE', 'REACTION', 'FOLLOW', 'MODERATION', 'ADMIN_ANNOUNCEMENT',
+])
+
+export const notifications = pgTable('notifications', {
+  id: serial('id').primaryKey(),
+  recipientAddress: varchar('recipient_address', { length: 42 }).notNull(),
+  type: notificationTypeEnum('type').notNull(),
+  actorAddress: varchar('actor_address', { length: 42 }),
+  targetEntryId: integer('target_entry_id'),
+  targetWalletAddress: varchar('target_wallet_address', { length: 42 }),
+  read: boolean('read').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  index('notifications_recipient_idx').on(table.recipientAddress),
+  index('notifications_read_idx').on(table.read),
+  index('notifications_created_idx').on(table.createdAt),
+])
+
+export const appConfig = pgTable('app_config', {
+  key: varchar('key', { length: 100 }).primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})

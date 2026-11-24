@@ -557,6 +557,37 @@ export const appConfig = pgTable('app_config', {
 })
 
 // =========================================================
+// Rate limiting (app layer)
+// =========================================================
+
+export const apiRateLimits = pgTable('api_rate_limits', {
+  key: varchar('key', { length: 255 }).primaryKey(),
+  count: integer('count').notNull().default(0),
+  windowStart: timestamp('window_start').notNull(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  index('api_rate_limits_updated_idx').on(t.updatedAt),
+])
+
+// =========================================================
+// Notification Preferences (app layer)
+// =========================================================
+
+export const notificationPreferences = pgTable(
+  'notification_preferences',
+  {
+    id: serial('id').primaryKey(),
+    walletAddress: varchar('wallet_address', { length: 42 }).notNull().references(() => wallets.address),
+    type: notificationTypeEnum('type').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('notification_preferences_wallet_type_idx').on(t.walletAddress, t.type),
+  ]
+)
+
+// =========================================================
 // Relations
 // =========================================================
 

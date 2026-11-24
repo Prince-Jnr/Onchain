@@ -41,6 +41,8 @@ import { ReactionButton } from './ReactionButton'
 import { RepostButton } from './RepostButton'
 import { DeletePostDialog } from './DeletePostDialog'
 import { ReportDialog } from './ReportDialog'
+import { QuoteDialog } from './QuoteDialog'
+import { MessageSquareQuote } from 'lucide-react'
 
 interface PostCardProps {
   entry: Entry
@@ -154,6 +156,7 @@ export function PostCard({ entry, showParent, compact, onClick }: PostCardProps)
   const [expanded, setExpanded] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
+  const [quoteOpen, setQuoteOpen] = useState(false)
 
   // Optimistic state
   const [localReaction, setLocalReaction] = useState<ReactionType | null>(entry.viewerReaction)
@@ -500,6 +503,19 @@ export function PostCard({ entry, showParent, compact, onClick }: PostCardProps)
                   onOptimisticUpdate={handleOptimisticRepost}
                 />
 
+                {/* Quote */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setQuoteOpen(true)
+                  }}
+                  aria-label="Quote post"
+                  className="flex items-center gap-1.5 rounded-full px-2 py-1 text-sm text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                >
+                  <MessageSquareQuote className="h-4 w-4" />
+                </button>
+
                 {/* Bookmark */}
                 <button
                   type="button"
@@ -547,6 +563,8 @@ export function PostCard({ entry, showParent, compact, onClick }: PostCardProps)
       />
 
       <ReportDialog open={reportOpen} onOpenChange={setReportOpen} entryId={entry.id} />
+
+      <QuoteDialog open={quoteOpen} onOpenChange={setQuoteOpen} entry={entry} />
     </>
   )
 }
