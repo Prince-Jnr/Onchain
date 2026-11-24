@@ -1,6 +1,6 @@
 # ONCHAIN — Build Progress
 
-## Current status: existing implementation audited; not production-ready
+## Current status: master-prompt gap analysis completed — sections B–H implemented (details below); not production-ready (no deployed contracts, no live DB, no Vercel project)
 
 Last checked: 2026-11-23
 
@@ -8,11 +8,11 @@ This repository was already populated when work began. The current checkout is b
 
 ## What is present
 
-- A pnpm workspace with a Next.js 16 App Router web app and a shared TypeScript package.
-- Web routes and components for home, feed, explore, search, profiles, posts, notifications, bookmarks, wallet connection and several API endpoints.
-- A Drizzle schema currently located inside `apps/web/src/lib/schema.ts`.
+- A pnpm workspace with a Next.js 16 App Router web app, a shared TypeScript package, an admin package area, and a standalone indexer.
+- Web routes and components for home, feed (Latest/Following/Popular/Trending), trending, hashtag pages, explore, search, profiles, posts, conversations, notifications (SSE), settings, admin (dashboard/moderation/reports/users/moderators/trusted/restricted/settings/analytics/audit), bookmarks and wallet connection plus ~30 API endpoints.
+- A Drizzle schema located inside `apps/web/src/lib/schema.ts` with migrations `0000`–`0004`.
 - Four Solidity contracts, Foundry deployment script, vendored OpenZeppelin/forge-std dependencies and contract tests.
-- Architecture, decisions and security notes, although parts of those documents describe intended behavior that is not yet implemented.
+- Architecture, decisions, security notes and deployment notes.
 - Installed Node.js 22.23.5, pnpm 10.15.0, Foundry 1.10.0, and local `node_modules` / build artifacts.
 
 ## Verified checks
@@ -65,6 +65,17 @@ This repository was already populated when work began. The current checkout is b
 - Added GitHub Actions jobs for web checks, indexer typecheck/tests, and Foundry build/tests. The workflow has not run remotely because this environment has no verified GitHub repository integration.
 - Fixed indexer shutdown to stop polling, release the per-chain PostgreSQL advisory lock, and close the pool; block-hash markers are pruned to the configured 128-marker reorg window.
 - Final checks after current changes: root workspace build passes, workspace typechecks pass, 84 Foundry tests pass, 3 web unit tests pass, lint passes with 38 warnings, and the earlier built homepage smoke check returned HTTP 200. The latest indexer additions have only been typechecked; they have not yet been verified against live services.
+
+## Implemented after the gap audit (master prompt sections B, C, D, E, F, G, H)
+
+- **B — pages**: `/trending`, `/hashtag/[tag]`, `/settings`, `/settings/profile`, `/settings/wallet`, `/settings/notifications` (+ `app/api/hashtags`, `app/api/notifications/preferences` with a `notificationPreferences` table).
+- **C — API**: `/api/follows` (POST/DELETE + `/status` + `/api/follows/[address]/status`), `/api/reposts` (GET/POST/DELETE), `/api/reactions` (GET/POST/DELETE — app-layer mirrors), `/api/link-preview`, `/api/profiles` (POST for settings/profile, GET for settings/profile).
+- **D — quote trigger**: `QuoteDialog` + Quote button on `PostCard`; quotes display in `QuoteCard`/`QuoteDialog`.
+- **E — labeling pass**: on-chain vs application-layer labels on Quote (on-chain), Reaction (on-chain), Follow (dual-layer, app-first), Quote/Onchain badge (on-chain) in `PostCard`; `DECISIONS.md` D-009/D-010.
+- **F — indexer**: `updateNotificationsProjection` (REPLY/QUOTE/MENTION/REPOST/REACTION/FOLLOW/MODERATION) + `updateAppConfigProjection` (moderation mode) + `notifications` + `appConfig` tables in `apps/indexer/src/schema.ts`.
+- **G — realtime**: `app/api/notifications/events` (SSE) + `hooks/useRealtimeNotifications` (SSE with polling fallback, wired into NotificationsClient).
+- **H — rate limiting**: `lib/rate-limit.ts` (PostgreSQL-backed, shared) applied to feed, entries, search, notifications, nonce, reports; `api_rate_limits` table + migration `0004`.
+- Verified: `pnpm -r typecheck` and `pnpm --filter @onchain/web typecheck` pass; web lint has 0 errors; web unit tests pass; `pnpm -r typecheck` covers shared/web/indexer.
 
 ## Remaining work
 

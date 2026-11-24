@@ -1,8 +1,9 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Users, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -37,7 +38,7 @@ export default function AdminUsersPage() {
 
   return (
     <AdminShell title="Users" actions={
-      <Button asChild variant="outline" size="sm"><a href="/admin/users/restricted">View restricted</a></Button>
+      <Button asChild variant="outline" size="sm"><Link href="/admin/users/restricted">View restricted</Link></Button>
     }>
       <div className="mb-4">
         <Input
@@ -71,9 +72,9 @@ export default function AdminUsersPage() {
               {visible.map((u) => (
                 <tr key={u.address} className="border-b border-border last:border-b-0 hover:bg-accent/30">
                   <td className="px-4 py-3 font-mono text-xs">
-                    <a href={`/admin/users/${u.address}`} className="text-primary hover:underline">
+                    <Link href={`/admin/users/${u.address}`} className="text-primary hover:underline">
                       {u.address.slice(0, 10)}…{u.address.slice(-6)}
-                    </a>
+                    </Link>
                   </td>
                   <td className="px-4 py-3">
                     {u.restriction !== 'NONE' && <Badge variant="destructive">{u.restriction}</Badge>}

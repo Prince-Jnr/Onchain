@@ -2,11 +2,12 @@
 
 ## Repository today
 
-- `apps/web`: Next.js App Router application, API route handlers, wagmi/RainbowKit client, Drizzle schema, and database access.
+- `apps/web`: Next.js App Router application, API route handlers, wagmi/RainbowKit client, Drizzle schema, database access, and admin pages.
 - `packages/contracts`: four Solidity contracts, Foundry deployment script, OpenZeppelin dependencies, and tests.
 - `packages/shared`: shared ABI, types, chain IDs, and address configuration.
-- `apps/indexer`: long-running viem/PostgreSQL worker that archives configured contract logs, checkpoints chunk block hashes, repairs bounded reorgs, and projects entry, social, profile, report, moderation-audit, role, and restriction events. `apps/api` remains empty.
-- `apps/web/drizzle`: Drizzle Kit configuration and generated PostgreSQL migration.
+- `apps/indexer`: long-running viem/PostgreSQL worker that archives configured contract logs, checkpoints chunk block hashes, repairs bounded reorgs, and projects entry, social, profile, report, moderation-audit, role, restriction, notification, and app-config events.
+- `apps/api` remains an empty placeholder; the current API routes live with the Next.js application.
+- `apps/web/drizzle`: Drizzle Kit configuration and generated PostgreSQL migrations.
 
 ## Implemented post path
 

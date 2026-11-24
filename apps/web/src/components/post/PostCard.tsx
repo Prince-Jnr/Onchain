@@ -338,7 +338,7 @@ export function PostCard({ entry, showParent, compact, onClick }: PostCardProps)
                       rel="noopener noreferrer"
                       className="flex items-center gap-1 text-[11px] font-mono text-onchain hover:underline shrink-0"
                       onClick={(e) => e.stopPropagation()}
-                      title="View transaction on-chain"
+                      title="On-chain transaction — verify on the Base explorer"
                     >
                       <span className="inline-block h-1.5 w-1.5 rounded-full bg-onchain" />
                       Onchain
@@ -503,14 +503,15 @@ export function PostCard({ entry, showParent, compact, onClick }: PostCardProps)
                   onOptimisticUpdate={handleOptimisticRepost}
                 />
 
-                {/* Quote */}
+                {/* Quote — on-chain */}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation()
                     setQuoteOpen(true)
                   }}
-                  aria-label="Quote post"
+                  aria-label="Quote post (on-chain)"
+                  title="Create a quote post (on-chain)"
                   className="flex items-center gap-1.5 rounded-full px-2 py-1 text-sm text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   <MessageSquareQuote className="h-4 w-4" />

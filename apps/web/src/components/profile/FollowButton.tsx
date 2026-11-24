@@ -132,11 +132,11 @@ export function FollowButton({
           <span className="ml-1.5">...</span>
         </>
       ) : isFollowing ? (
-        <span>{isHovering ? 'Unfollow' : 'Following'}</span>
+        <span title="Followed (application layer; on-chain record pending)">{isHovering ? 'Unfollow' : 'Following'}</span>
       ) : (
         <>
           <UserPlus className="h-4 w-4" />
-          <span className="ml-1.5">Follow</span>
+          <span className="ml-1.5" title="Follows record off-chain first; on-chain via wallet">Follow</span>
         </>
       )}
     </Button>

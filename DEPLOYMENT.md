@@ -59,6 +59,10 @@ Deployments run through the Vercel CLI from local source; no GitHub repository i
 
 For the Vercel CLI flow, see [Deploying projects from the CLI](https://vercel.com/docs/projects/deploy-from-cli). No ONCHAIN project was found in the connected Vercel account at the time of this repository audit, so project linking still needs to happen.
 
+## Indexer deployment
+
+The indexer runs as a standalone process: `pnpm --filter @onchain/indexer start`. It requires `DATABASE_URL`, `INDEXER_CHAIN_ID`, `INDEXER_START_BLOCK`, and deployed contract address variables. Set `INDEXER_START_BLOCK` to the earliest deployment block; do not use zero for mainnet unless intended. Vercel Functions are not an appropriate host — deploy the worker as a separate service.
+
 ## What is not deployed
 
 - PostgreSQL and schema migrations.
@@ -67,5 +71,6 @@ For the Vercel CLI flow, see [Deploying projects from the CLI](https://vercel.co
 - GitHub Actions checks are defined in `.github/workflows/ci.yml`; they have not run on a remote repository in this environment.
 - Pinata-backed media until `PINATA_JWT` is configured.
 - A Vercel project or deployment.
+- Admin-only wallet flags (`wallets.isAdmin`) are DB-managed today; on-chain role projection is pending (see DECISIONS.md D-009).
 
 Do not treat this application as production-ready until these gaps are closed and the resulting deployment passes real testnet checks.

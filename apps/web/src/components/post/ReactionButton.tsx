@@ -180,7 +180,8 @@ export function ReactionButton({
           type="button"
           onClick={handleDefaultClick}
           disabled={isPending || !isConnected}
-          aria-label={isActive ? `Remove reaction` : 'React to post'}
+          title="On-chain reaction (requires wallet approval)"
+          aria-label={isActive ? `Remove reaction` : 'React to post (on-chain)'}
           aria-pressed={isActive}
           className={cn(
             'flex items-center gap-1.5 rounded-full px-2 py-1 text-sm transition-colors',

@@ -15,14 +15,9 @@ export async function GET() {
   }
 }
 
-// PATCH /api/admin/stats/refresh — no-op kept for symmetry; stats are computed live
-export async function PATCH(_request: NextRequest) {
+// PATCH /api/admin/stats/refresh — recomputes stats on demand
+export async function PATCH() {
   const session = await requireAdminSession()
   if (!session) return NextResponse.json({ error: 'Admin required' }, { status: 403 })
   return NextResponse.json(await computeAdminStats())
-}
-
-// GET /api/admin/analytics — trend data for the dashboard
-export async function GETAnalytics() {
-  return GET
 }

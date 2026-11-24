@@ -33,3 +33,19 @@ The current web API imports Drizzle schema and the Neon serverless client from `
 ## D-008: No deployment claim without a verified environment
 
 There is no linked Vercel project, configured production database, deployed contract, or live ONCHAIN URL in this checkout. Local build success is not deployment or runtime verification.
+
+## D-009: Admin surface is application-layer until on-chain admin actions exist
+
+The admin dashboard, moderation queue, reports, users, moderators, trusted/restricted lists, settings, audit log and analytics run over PostgreSQL + SIWE sessions. Role flags (`isAdmin`, `isModerator`, `isTrusted`) are stored on the `wallets` table for fast enforcement; where actions are on-chain later (moderator role grants, restrictions, reports), the indexer must reconcile them from contract events. UI labels role and action origins as application-layer where applicable.
+
+## D-010: Feature labeling — on-chain vs application-layer
+
+Every user-facing feature is labeled as on-chain (requires a wallet transaction) or application-layer (database + SIWE). Examples: quotes are on-chain (`createQuote`); reactions are on-chain; reposts are on-chain; bookmarks are application-layer; follows are dual-layer (app record + optional on-chain); notifications from chain activity are application-layer projections. Labels are shown as titles/tooltips on controls where the distinction matters.
+
+## D-011: Notifications are app-layer projections of chain events
+
+The indexer projects `EntryCreated`, `EntryStatusChanged`, `Reactions`, `Reposts`, `Follows`, and `ReportSubmitted` events into the `notifications` table. SSE (`/api/notifications/events`) streams new notifications to the UI with a 30s polling fallback.
+
+## D-012: Indexer maintains appConfig + notifications tables
+
+The indexer now materializes a `notifications` table (from chain activity) and `appConfig` (moderation mode + other config from `ModerationModeChanged`). These are part of the web schema as well; the indexer writes through Drizzle against the same PostgreSQL database.

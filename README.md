@@ -6,12 +6,15 @@ ONCHAIN is an in-progress wallet-based social guestbook. This repository contain
 
 ## Current implementation
 
-- Next.js App Router frontend with feed, explore, search, profile, post, notification, and bookmark screens.
+- Next.js App Router frontend with feed, trending, hashtag, explore, search, profile, post, notification, settings, and bookmark screens.
 - wagmi, viem, and RainbowKit wallet connection; SIWE routes and a Drizzle schema live in the web app.
 - Four Solidity contracts and Foundry tests for entries, social interactions, profiles, and moderation.
 - Shared TypeScript package for contract ABIs and common types.
+- Admin dashboard (`/admin`, moderation, reports, users, moderators, trusted, restricted, settings, analytics, audit).
+- Social features: posts/comments/quotes, reactions, reposts, bookmarks, follows, notifications (SSE), search, hashtags, mentions, media uploads, link previews.
+- Application-layer features labeled as such: bookmarks, follows (dual), notifications, quotes trigger from PostCard.
 
-The post path stages a deterministic content document, asks the user's wallet to create its on-chain reference, and persists entries after receipt/event verification. A long-running indexer archives configured logs and projects entries, reactions, reposts, follows, profile references, reports, moderation audit records, role flags, and wallet restrictions, with bounded reorg rollback. Image uploads use Pinata when `PINATA_JWT` is configured, and Drizzle migrations are included. Notifications from chain activity, full on-chain configuration projection, production services, and several advertised API features are still incomplete, so the app is not production-ready. See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for verified checks and remaining gaps.
+The post path stages a deterministic content document, asks the user's wallet to create its on-chain reference, and persists entries after receipt/event verification. A long-running indexer archives configured logs and projects entries, reactions, reposts, follows, profile references, reports, moderation audit records, role flags, wallet restrictions, notifications, and app config, with bounded reorg rollback. Image uploads use Pinata when `PINATA_JWT` is configured, and Drizzle migrations are included. No production services are configured yet, so the app is not production-ready. See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for verified checks and remaining gaps.
 
 ## Requirements
 

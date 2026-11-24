@@ -16,10 +16,11 @@ This file records protections that exist in the repository and the controls stil
 - There is no production database, deployed contract, or end-to-end test of the transaction verification flow in this checkout.
 - The confirmation route verifies a receipt/event for the configured chain. The indexer waits for configurable confirmations, handles bounded reorgs within retained chunk markers, and projects common social/moderation events. It is not deployed, has not been exercised against a live database/RPC, and is not a substitute for reconciliation or a contract audit.
 - Most social interactions and moderation APIs require a separate review to confirm their authorization model and whether they are on-chain or application-layer. Do not assume buttons or database rows imply on-chain authorization.
-- Current rate limits are in-memory and process-local. Replace them with a shared store or provider-level controls before running multiple instances.
+- Distributed rate limiting is implemented over PostgreSQL (`api_rate_limits` table) so limits are shared across instances. Run multiple Next.js instances only against the same database — there is no Redis-backed limit yet.
+- Admin endpoints are guarded by SIWE + `wallets.isAdmin` in PostgreSQL. If admin role changes should be on-chain, the indexer must project `ModeratorAdded`/`TrustedUserAdded`-style role events (admin is currently DB-only).
 - The `sessions` table is not used for revocation; logout clears the iron-session cookie. Secret rotation invalidates sessions, but individual server-side session revocation is not available.
 - The upload endpoint pins user files, but there is no image re-encoding or metadata stripping. Uploaded IPFS data can remain publicly available after the user removes a post.
-- Link-preview fetching is not implemented. If added, it must block private IP ranges, revalidate redirects, limit response size, and use timeouts.
+- Link preview fetching (`/api/link-preview`) performs outbound HTTP fetches. It is cached and fail-open, but before production it should be reviewed for SSRF (blocked ranges, redirect limits, size caps, timeouts).
 - No CSP, distributed abuse controls, dependency audit workflow, or external monitoring has been verified.
 - The default app's social content and wallet addresses are public identifiers. Blockchain transactions are public and cannot be erased by database deletion.
 
