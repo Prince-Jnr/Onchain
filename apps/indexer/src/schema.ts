@@ -14,6 +14,12 @@ import {
   bigint,
 } from 'drizzle-orm/pg-core'
 
+export const reactionTypeEnum = pgEnum('reaction_type', ['LIKE', 'LOVE', 'LAUGH', 'WOW', 'SAD', 'ANGRY'])
+export const userRestrictionEnum = pgEnum('user_restriction', ['NONE', 'RESTRICTED', 'BANNED'])
+export const reportCategoryEnum = pgEnum('report_category', ['SPAM', 'HARASSMENT', 'HATE_SPEECH', 'MISINFORMATION', 'ILLEGAL_CONTENT', 'VIOLENT_CONTENT', 'ADULT_CONTENT', 'OTHER'])
+export const reportStatusEnum = pgEnum('report_status', ['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED'])
+export const moderationActionEnum = pgEnum('moderation_action', ['APPROVE', 'REJECT', 'HIDE', 'RESTORE', 'PIN', 'UNPIN', 'DELETE'])
+
 export const entryTypeEnum = pgEnum('entry_type', ['POST', 'COMMENT', 'QUOTE'])
 export const entryStatusEnum = pgEnum('entry_status', ['ACTIVE', 'DELETED', 'HIDDEN', 'PENDING', 'REJECTED'])
 export const pendingEntries = pgTable('pending_entries', {
@@ -36,6 +42,28 @@ export const pendingEntries = pgTable('pending_entries', {
 export const wallets = pgTable('wallets', {
   address: varchar('address', { length: 42 }).primaryKey(),
   chainId: integer('chain_id').notNull(),
+  isTrusted: boolean('is_trusted').notNull().default(false),
+  isModerator: boolean('is_moderator').notNull().default(false),
+  isAdmin: boolean('is_admin').notNull().default(false),
+  restriction: userRestrictionEnum('restriction').notNull().default('NONE'),
+})
+export const profiles = pgTable('profiles', {
+  id: serial('id').primaryKey(),
+  walletAddress: varchar('wallet_address', { length: 42 }).notNull().unique(),
+  displayName: varchar('display_name', { length: 50 }),
+  bio: text('bio'),
+  avatarUrl: text('avatar_url'),
+  bannerUrl: text('banner_url'),
+  website: text('website'),
+  twitterHandle: varchar('twitter_handle', { length: 50 }),
+  githubHandle: varchar('github_handle', { length: 50 }),
+  metadataRef: text('metadata_ref'),
+  registeredAt: timestamp('registered_at'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  isActive: boolean('is_active').notNull().default(true),
+  followerCount: integer('follower_count').notNull().default(0),
+  followingCount: integer('following_count').notNull().default(0),
+  postCount: integer('post_count').notNull().default(0),
 })
 export const entries = pgTable('entries', {
   id: serial('id').primaryKey(),
@@ -52,6 +80,14 @@ export const entries = pgTable('entries', {
   status: entryStatusEnum('status').notNull().default('PENDING'),
   pinned: boolean('pinned').notNull().default(false),
   commentCount: integer('comment_count').notNull().default(0),
+  repostCount: integer('repost_count').notNull().default(0),
+  totalReactions: integer('total_reactions').notNull().default(0),
+  reactionLike: integer('reaction_like').notNull().default(0),
+  reactionLove: integer('reaction_love').notNull().default(0),
+  reactionLaugh: integer('reaction_laugh').notNull().default(0),
+  reactionWow: integer('reaction_wow').notNull().default(0),
+  reactionSad: integer('reaction_sad').notNull().default(0),
+  reactionAngry: integer('reaction_angry').notNull().default(0),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
@@ -70,6 +106,59 @@ export const media = pgTable('media', {
   mimeType: varchar('mime_type', { length: 100 }).notNull(),
   sizeBytes: integer('size_bytes'),
 }, (table) => [uniqueIndex('media_entry_cid_unique_idx').on(table.entryId, table.ipfsCid)])
+export const reactions = pgTable('reactions', {
+  id: serial('id').primaryKey(),
+  entryId: integer('entry_id').notNull(),
+  walletAddress: varchar('wallet_address', { length: 42 }).notNull(),
+  reactionType: reactionTypeEnum('reaction_type').notNull(),
+  txHash: varchar('tx_hash', { length: 66 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [uniqueIndex('reactions_entry_wallet_idx').on(table.entryId, table.walletAddress)])
+export const reposts = pgTable('reposts', {
+  id: serial('id').primaryKey(),
+  entryId: integer('entry_id').notNull(),
+  walletAddress: varchar('wallet_address', { length: 42 }).notNull(),
+  txHash: varchar('tx_hash', { length: 66 }),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [uniqueIndex('reposts_entry_wallet_idx').on(table.entryId, table.walletAddress)])
+export const follows = pgTable('follows', {
+  id: serial('id').primaryKey(),
+  followerAddress: varchar('follower_address', { length: 42 }).notNull(),
+  followedAddress: varchar('followed_address', { length: 42 }).notNull(),
+  txHash: varchar('tx_hash', { length: 66 }),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [uniqueIndex('follows_pair_idx').on(table.followerAddress, table.followedAddress)])
+export const reports = pgTable('reports', {
+  id: serial('id').primaryKey(),
+  chainReportId: bigint('chain_report_id', { mode: 'number' }),
+  reporterAddress: varchar('reporter_address', { length: 42 }).notNull(),
+  targetEntryId: integer('target_entry_id'),
+  targetChainEntryId: bigint('target_chain_entry_id', { mode: 'number' }),
+  targetWalletAddress: varchar('target_wallet_address', { length: 42 }),
+  category: reportCategoryEnum('category').notNull(),
+  status: reportStatusEnum('status').notNull().default('PENDING'),
+  notes: text('notes'),
+  txHash: varchar('tx_hash', { length: 66 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at'),
+  resolvedByAddress: varchar('resolved_by_address', { length: 42 }),
+}, (table) => [uniqueIndex('reports_chain_report_unique_idx').on(table.chainReportId)])
+export const moderationLogs = pgTable('moderation_logs', {
+  id: serial('id').primaryKey(),
+  actorAddress: varchar('actor_address', { length: 42 }).notNull(),
+  action: moderationActionEnum('action').notNull(),
+  targetEntryId: integer('target_entry_id'),
+  targetWalletAddress: varchar('target_wallet_address', { length: 42 }),
+  reason: text('reason'),
+  txHash: varchar('tx_hash', { length: 66 }),
+  chainAuditId: bigint('chain_audit_id', { mode: 'number' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [uniqueIndex('moderation_logs_chain_audit_unique_idx').on(table.chainAuditId)])
 export const indexerCheckpoints = pgTable('indexer_checkpoints', {
   id: serial('id').primaryKey(),
   chainId: integer('chain_id').notNull(),

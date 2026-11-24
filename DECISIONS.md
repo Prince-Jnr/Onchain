@@ -4,7 +4,7 @@ These decisions describe the implementation in this repository now. Earlier plan
 
 ## D-001: pnpm workspace with Next.js application and Solidity package
 
-Use a pnpm monorepo with the web app under `apps/web`, Foundry contracts under `packages/contracts`, and ABIs/types under `packages/shared`. The indexer and dedicated API are not yet separate deployable packages.
+Use a pnpm monorepo with the web app under `apps/web`, Foundry contracts under `packages/contracts`, ABIs/types under `packages/shared`, and a long-running indexer under `apps/indexer`. `apps/api` remains an empty placeholder; the current API routes live with the Next.js application.
 
 ## D-002: EVM wallet writes remain user-authorized
 

@@ -64,6 +64,7 @@ For the Vercel CLI flow, see [Deploying projects from the CLI](https://vercel.co
 - PostgreSQL and schema migrations.
 - Base Sepolia or Base mainnet contracts.
 - The indexer worker is implemented but has not been deployed or connected to an RPC/database.
+- GitHub Actions checks are defined in `.github/workflows/ci.yml`; they have not run on a remote repository in this environment.
 - Pinata-backed media until `PINATA_JWT` is configured.
 - A Vercel project or deployment.
 

@@ -11,7 +11,7 @@ ONCHAIN is an in-progress wallet-based social guestbook. This repository contain
 - Four Solidity contracts and Foundry tests for entries, social interactions, profiles, and moderation.
 - Shared TypeScript package for contract ABIs and common types.
 
-The post path now stages a deterministic content document, asks the user's wallet to create its on-chain reference, and persists entries after receipt/event verification. A long-running indexer now archives configured contract logs and projects entry create/status/pin events, with bounded reorg recovery. Image uploads use Pinata when `PINATA_JWT` is configured, and Drizzle migrations are included. Other social event projections, production services, and several advertised API features are still missing, so the app is not production-ready. See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for verification and gaps.
+The post path stages a deterministic content document, asks the user's wallet to create its on-chain reference, and persists entries after receipt/event verification. A long-running indexer archives configured logs and projects entries, reactions, reposts, follows, profile references, reports, moderation audit records, role flags, and wallet restrictions, with bounded reorg rollback. Image uploads use Pinata when `PINATA_JWT` is configured, and Drizzle migrations are included. Notifications from chain activity, full on-chain configuration projection, production services, and several advertised API features are still incomplete, so the app is not production-ready. See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for verified checks and remaining gaps.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ pnpm --filter @onchain/contracts build
 pnpm --filter @onchain/contracts test
 ```
 
-The web content-reference tests pass (3 tests). The production web build passes with the configured Webpack builder. Contract tests previously passed (84 tests); rerun them before deployment. There is no configured database or live contract to verify the wallet-to-database flow.
+The production workspace build passes with the configured Webpack builder. Workspace typechecks pass, 84 Foundry tests pass, three web tests pass, and two indexer projection-state tests pass. A GitHub Actions workflow now runs those checks on pushes and pull requests. There is no configured database or live contract to verify the wallet-to-database/indexer flow.
 
 ## Deployments
 

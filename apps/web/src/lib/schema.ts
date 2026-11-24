@@ -198,7 +198,7 @@ export const entries = pgTable(
     entryType: entryTypeEnum('entry_type').notNull(),
     parentId: integer('parent_id'),
     referenceId: integer('reference_id'),
-    contentRef: text('content_ref').notNull(), // IPFS CID
+    contentRef: text('content_ref').notNull(), // keccak256 hash of canonical content document
     chainCreatedAt: timestamp('chain_created_at'),
     status: entryStatusEnum('status').notNull().default('PENDING'),
     pinned: boolean('pinned').notNull().default(false),
@@ -435,6 +435,7 @@ export const reports = pgTable(
     chainReportId: bigint('chain_report_id', { mode: 'number' }),
     reporterAddress: varchar('reporter_address', { length: 42 }).notNull().references(() => wallets.address),
     targetEntryId: integer('target_entry_id').references(() => entries.id),
+    targetChainEntryId: bigint('target_chain_entry_id', { mode: 'number' }),
     targetWalletAddress: varchar('target_wallet_address', { length: 42 }),
     category: reportCategoryEnum('category').notNull(),
     status: reportStatusEnum('status').notNull().default('PENDING'),
@@ -445,6 +446,7 @@ export const reports = pgTable(
     resolvedByAddress: varchar('resolved_by_address', { length: 42 }),
   },
   (t) => [
+    uniqueIndex('reports_chain_report_unique_idx').on(t.chainReportId),
     index('reports_status_idx').on(t.status),
     index('reports_reporter_idx').on(t.reporterAddress),
     index('reports_target_entry_idx').on(t.targetEntryId),
@@ -465,6 +467,7 @@ export const moderationLogs = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => [
+    uniqueIndex('moderation_logs_chain_audit_unique_idx').on(t.chainAuditId),
     index('moderation_logs_actor_idx').on(t.actorAddress),
     index('moderation_logs_action_idx').on(t.action),
     index('moderation_logs_created_idx').on(t.createdAt),

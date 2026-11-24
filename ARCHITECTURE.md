@@ -5,7 +5,7 @@
 - `apps/web`: Next.js App Router application, API route handlers, wagmi/RainbowKit client, Drizzle schema, and database access.
 - `packages/contracts`: four Solidity contracts, Foundry deployment script, OpenZeppelin dependencies, and tests.
 - `packages/shared`: shared ABI, types, chain IDs, and address configuration.
-- `apps/indexer`: long-running viem/PostgreSQL worker that archives configured contract logs, checkpoints chunk block hashes, repairs bounded reorgs, and projects Entries create/status/pin events. `apps/api` remains empty.
+- `apps/indexer`: long-running viem/PostgreSQL worker that archives configured contract logs, checkpoints chunk block hashes, repairs bounded reorgs, and projects entry, social, profile, report, moderation-audit, role, and restriction events. `apps/api` remains empty.
 - `apps/web/drizzle`: Drizzle Kit configuration and generated PostgreSQL migration.
 
 ## Implemented post path
@@ -28,12 +28,13 @@ The content hash is stored on-chain; the matching text is stored in PostgreSQL. 
 
 ## Not implemented yet
 
-- The indexer is not deployed or connected to a live RPC/database. It archives logs for all configured contracts but only projects entry creation, entry status, and pin state.
-- Materialized projections for reactions, reposts, follows, profiles, reports, and all administrative events.
+- The indexer is not deployed or connected to a live RPC/database; its projections have only been typechecked and tested at the pure state-transition layer.
+- Notifications from indexed events, moderation-mode/configuration projections, and complete historical reconciliation.
+- The indexer stores all configured contract logs, but events without a materialized projection are only archived.
 - Unbounded historical recovery if a reorganization exceeds the retained 128 chunk markers.
-- A full chain-authoritative source for every social and moderation action.
+- A full chain-authoritative source for every social and moderation action; bookmarks, notifications, and some profile fields remain application-layer data.
 - Production database credentials and an applied migration.
-- Realtime notifications, cross-instance rate limiting, operational monitoring, and a CI workflow.
+- Realtime notifications, cross-instance rate limiting, and operational monitoring.
 - Verified production deployment or browser-based visual inspection.
 
 See [BUILD_PROGRESS.md](BUILD_PROGRESS.md) for current checks and [DEPLOYMENT.md](DEPLOYMENT.md) for service setup.

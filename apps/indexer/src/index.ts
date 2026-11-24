@@ -1,9 +1,10 @@
 import { Pool, neonConfig } from '@neondatabase/serverless'
 import { drizzle } from 'drizzle-orm/neon-serverless'
-import { and, desc, eq, gt, lte, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, lt, lte, sql } from 'drizzle-orm'
 import { decodeEventLog, defineChain, http, createPublicClient, type Address, type Log } from 'viem'
-import { CHAIN_IDS, ONCHAIN_ENTRIES_ABI, createEntryContentDocument, getEntryContentReference } from '@onchain/shared'
+import { CHAIN_IDS, ONCHAIN_ENTRIES_ABI, ONCHAIN_SOCIAL_ABI, ONCHAIN_PROFILES_ABI, ONCHAIN_MODERATION_ABI, createEntryContentDocument, getEntryContentReference } from '@onchain/shared'
 import * as schema from './schema.js'
+import { activeAfterEvent, reactionAfterEvent } from './projection-state.js'
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required')
 
@@ -70,7 +71,18 @@ function asDbStatus(value: number): 'ACTIVE' | 'DELETED' | 'HIDDEN' | 'PENDING' 
 
 async function updateEntryProjection(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], log: Log, reversed = false) {
   const decoded = decodeEntryLog(log)
-  if (!decoded || !('entryId' in decoded.args)) return
+  if (!decoded) return
+  if (decoded.eventName === 'UserRestrictionChanged' && 'user' in decoded.args && 'restriction' in decoded.args &&
+      typeof decoded.args.user === 'string' && typeof decoded.args.restriction === 'number') {
+    const restrictions = ['NONE', 'RESTRICTED', 'BANNED'] as const
+    const restriction = restrictions[decoded.args.restriction]
+    if (!restriction) throw new Error(`Invalid wallet restriction in ${log.transactionHash}`)
+    const address = decoded.args.user.toLowerCase()
+    await tx.insert(schema.wallets).values({ address, chainId }).onConflictDoNothing()
+    await tx.update(schema.wallets).set({ restriction: reversed ? 'NONE' : restriction }).where(eq(schema.wallets.address, address))
+    return
+  }
+  if (!('entryId' in decoded.args)) return
   const eventName = decoded.eventName
   const entryId = Number(decoded.args.entryId)
   if (!Number.isSafeInteger(entryId) || entryId <= 0) throw new Error(`Unsafe entry ID in ${log.transactionHash}`)
@@ -198,6 +210,320 @@ async function updateEntryProjection(tx: Parameters<Parameters<typeof db.transac
   }
 }
 
+function decodeSocialLog(log: Log) {
+  try {
+    return decodeEventLog({ abi: ONCHAIN_SOCIAL_ABI, data: log.data, topics: log.topics, strict: false })
+  } catch {
+    return null
+  }
+}
+
+function decodeProfileLog(log: Log) {
+  try {
+    return decodeEventLog({ abi: ONCHAIN_PROFILES_ABI, data: log.data, topics: log.topics, strict: false })
+  } catch {
+    return null
+  }
+}
+
+function decodeModerationLog(log: Log) {
+  try {
+    return decodeEventLog({ abi: ONCHAIN_MODERATION_ABI, data: log.data, topics: log.topics, strict: false })
+  } catch {
+    return null
+  }
+}
+
+const reportCategories = ['SPAM', 'HARASSMENT', 'HATE_SPEECH', 'MISINFORMATION', 'ILLEGAL_CONTENT', 'VIOLENT_CONTENT', 'ADULT_CONTENT', 'OTHER'] as const
+const reportStatuses = ['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED'] as const
+const moderationActions = ['APPROVE', 'REJECT', 'HIDE', 'RESTORE', 'PIN', 'UNPIN', 'DELETE'] as const
+
+async function updateModerationProjection(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], log: Log, reversed = false) {
+  const decoded = decodeModerationLog(log)
+  if (!decoded || !log.transactionHash) return
+  const timestamp = 'timestamp' in decoded.args && typeof decoded.args.timestamp === 'bigint'
+    ? new Date(Number(decoded.args.timestamp) * 1000)
+    : new Date()
+
+  if (decoded.eventName === 'ReportSubmitted' && 'reportId' in decoded.args && 'reporter' in decoded.args &&
+      'targetEntryId' in decoded.args && 'targetWallet' in decoded.args && 'category' in decoded.args &&
+      typeof decoded.args.reportId === 'bigint' && typeof decoded.args.reporter === 'string' &&
+      typeof decoded.args.targetEntryId === 'bigint' && typeof decoded.args.targetWallet === 'string' &&
+      typeof decoded.args.category === 'number') {
+    const reportId = Number(decoded.args.reportId)
+    const targetChainEntryId = Number(decoded.args.targetEntryId)
+    const category = reportCategories[decoded.args.category]
+    if (!Number.isSafeInteger(reportId) || reportId <= 0 || !Number.isSafeInteger(targetChainEntryId) || !category) {
+      throw new Error(`Invalid report event data in ${log.transactionHash}`)
+    }
+    if (reversed) {
+      await tx.delete(schema.reports).where(eq(schema.reports.chainReportId, reportId))
+      return
+    }
+    const reporter = decoded.args.reporter.toLowerCase()
+    const targetWallet = decoded.args.targetWallet.toLowerCase()
+    await tx.insert(schema.wallets).values({ address: reporter, chainId }).onConflictDoNothing()
+    if (targetWallet !== '0x0000000000000000000000000000000000000000') {
+      await tx.insert(schema.wallets).values({ address: targetWallet, chainId }).onConflictDoNothing()
+    }
+    const [target] = targetChainEntryId
+      ? await tx.select({ id: schema.entries.id }).from(schema.entries).where(eq(schema.entries.chainEntryId, targetChainEntryId)).limit(1)
+      : []
+    await tx.insert(schema.reports).values({
+      chainReportId: reportId,
+      reporterAddress: reporter,
+      targetEntryId: target?.id ?? null,
+      targetChainEntryId: targetChainEntryId || null,
+      targetWalletAddress: targetWallet === '0x0000000000000000000000000000000000000000' ? null : targetWallet,
+      category,
+      status: 'PENDING',
+      txHash: log.transactionHash,
+      createdAt: timestamp,
+    }).onConflictDoUpdate({
+      target: schema.reports.chainReportId,
+      set: { reporterAddress: reporter, targetEntryId: target?.id ?? null, targetChainEntryId: targetChainEntryId || null,
+        targetWalletAddress: targetWallet === '0x0000000000000000000000000000000000000000' ? null : targetWallet,
+        category, status: 'PENDING', txHash: log.transactionHash, createdAt: timestamp },
+    })
+    return
+  }
+
+  if (decoded.eventName === 'ReportStatusChanged' && 'reportId' in decoded.args && 'oldStatus' in decoded.args &&
+      'newStatus' in decoded.args && 'changedBy' in decoded.args && typeof decoded.args.reportId === 'bigint' &&
+      typeof decoded.args.oldStatus === 'number' && typeof decoded.args.newStatus === 'number' && typeof decoded.args.changedBy === 'string') {
+    const reportId = Number(decoded.args.reportId)
+    const status = reportStatuses[reversed ? decoded.args.oldStatus : decoded.args.newStatus]
+    if (!status) throw new Error(`Invalid report status in ${log.transactionHash}`)
+    const by = decoded.args.changedBy.toLowerCase()
+    await tx.insert(schema.wallets).values({ address: by, chainId }).onConflictDoNothing()
+    await tx.update(schema.reports).set({
+      status,
+      resolvedAt: status === 'RESOLVED' || status === 'DISMISSED' ? timestamp : null,
+      resolvedByAddress: status === 'RESOLVED' || status === 'DISMISSED' ? by : null,
+    }).where(eq(schema.reports.chainReportId, reportId))
+    return
+  }
+
+  if (decoded.eventName === 'ModerationAuditRecorded' && 'auditId' in decoded.args && 'actor' in decoded.args &&
+      'action' in decoded.args && 'targetEntryId' in decoded.args && 'targetWallet' in decoded.args &&
+      typeof decoded.args.auditId === 'bigint' && typeof decoded.args.actor === 'string' &&
+      typeof decoded.args.action === 'number' && typeof decoded.args.targetEntryId === 'bigint' &&
+      typeof decoded.args.targetWallet === 'string') {
+    const auditId = Number(decoded.args.auditId)
+    const targetChainEntryId = Number(decoded.args.targetEntryId)
+    const action = moderationActions[decoded.args.action]
+    if (!Number.isSafeInteger(auditId) || !action) throw new Error(`Invalid moderation audit in ${log.transactionHash}`)
+    if (reversed) {
+      await tx.delete(schema.moderationLogs).where(eq(schema.moderationLogs.chainAuditId, auditId))
+      return
+    }
+    const actor = decoded.args.actor.toLowerCase()
+    const targetWallet = decoded.args.targetWallet.toLowerCase()
+    await tx.insert(schema.wallets).values({ address: actor, chainId }).onConflictDoNothing()
+    const [target] = targetChainEntryId
+      ? await tx.select({ id: schema.entries.id }).from(schema.entries).where(eq(schema.entries.chainEntryId, targetChainEntryId)).limit(1)
+      : []
+    await tx.insert(schema.moderationLogs).values({
+      actorAddress: actor,
+      action,
+      targetEntryId: target?.id ?? null,
+      targetWalletAddress: targetWallet === '0x0000000000000000000000000000000000000000' ? null : targetWallet,
+      txHash: log.transactionHash,
+      chainAuditId: auditId,
+      createdAt: timestamp,
+    }).onConflictDoUpdate({
+      target: schema.moderationLogs.chainAuditId,
+      set: { actorAddress: actor, action, targetEntryId: target?.id ?? null,
+        targetWalletAddress: targetWallet === '0x0000000000000000000000000000000000000000' ? null : targetWallet,
+        txHash: log.transactionHash, createdAt: timestamp },
+    })
+    return
+  }
+
+  const roleEvents = {
+    ModeratorAdded: { field: 'isModerator', added: true },
+    ModeratorRemoved: { field: 'isModerator', added: false },
+    TrustedUserAdded: { field: 'isTrusted', added: true },
+    TrustedUserRemoved: { field: 'isTrusted', added: false },
+  } as const
+  const roleEvent = roleEvents[decoded.eventName as keyof typeof roleEvents]
+  if (roleEvent) {
+    const address = 'moderator' in decoded.args ? decoded.args.moderator : 'user' in decoded.args ? decoded.args.user : null
+    if (typeof address !== 'string') return
+    const normalized = address.toLowerCase()
+    await tx.insert(schema.wallets).values({ address: normalized, chainId }).onConflictDoNothing()
+    await tx.update(schema.wallets).set({ [roleEvent.field]: reversed ? !roleEvent.added : roleEvent.added })
+      .where(eq(schema.wallets.address, normalized))
+  }
+}
+
+async function updateProfileProjection(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], log: Log, reversed = false) {
+  const decoded = decodeProfileLog(log)
+  if (!decoded || !('wallet' in decoded.args) || typeof decoded.args.wallet !== 'string') return
+  const wallet = decoded.args.wallet.toLowerCase()
+  const timestamp = 'timestamp' in decoded.args && typeof decoded.args.timestamp === 'bigint'
+    ? new Date(Number(decoded.args.timestamp) * 1000)
+    : new Date()
+  await tx.insert(schema.wallets).values({ address: wallet, chainId }).onConflictDoNothing()
+
+  if (decoded.eventName === 'ProfileRegistered' && 'metadataRef' in decoded.args && typeof decoded.args.metadataRef === 'string') {
+    if (reversed) {
+      await tx.update(schema.profiles).set({ metadataRef: null, registeredAt: null, isActive: true, updatedAt: timestamp })
+        .where(eq(schema.profiles.walletAddress, wallet))
+      return
+    }
+    const [followCounts] = await tx.select({
+      followers: sql<number>`count(*) filter (where ${schema.follows.followedAddress} = ${wallet} and ${schema.follows.active} = true)`,
+      following: sql<number>`count(*) filter (where ${schema.follows.followerAddress} = ${wallet} and ${schema.follows.active} = true)`,
+    }).from(schema.follows)
+    await tx.insert(schema.profiles).values({
+      walletAddress: wallet,
+      metadataRef: decoded.args.metadataRef,
+      registeredAt: timestamp,
+      updatedAt: timestamp,
+      isActive: true,
+      followerCount: Number(followCounts?.followers ?? 0),
+      followingCount: Number(followCounts?.following ?? 0),
+    }).onConflictDoUpdate({
+      target: schema.profiles.walletAddress,
+      set: { metadataRef: decoded.args.metadataRef, updatedAt: timestamp, isActive: true },
+    })
+    return
+  }
+
+  if (decoded.eventName === 'ProfileUpdated' && 'oldMetadataRef' in decoded.args && 'newMetadataRef' in decoded.args &&
+      typeof decoded.args.oldMetadataRef === 'string' && typeof decoded.args.newMetadataRef === 'string') {
+    await tx.update(schema.profiles).set({
+      metadataRef: reversed ? decoded.args.oldMetadataRef : decoded.args.newMetadataRef,
+      updatedAt: timestamp,
+    }).where(eq(schema.profiles.walletAddress, wallet))
+    return
+  }
+
+  if (decoded.eventName === 'ProfileDeactivated' || decoded.eventName === 'ProfileRestored') {
+    const isActive = decoded.eventName === 'ProfileRestored' ? !reversed : reversed
+    await tx.update(schema.profiles).set({ isActive, updatedAt: timestamp })
+      .where(eq(schema.profiles.walletAddress, wallet))
+  }
+}
+
+const reactionNames = ['LIKE', 'LOVE', 'LAUGH', 'WOW', 'SAD', 'ANGRY'] as const
+
+async function updateSocialProjection(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], log: Log, reversed = false) {
+  const decoded = decodeSocialLog(log)
+  if (!decoded || !log.transactionHash) return
+  const timestamp = 'timestamp' in decoded.args && typeof decoded.args.timestamp === 'bigint'
+    ? new Date(Number(decoded.args.timestamp) * 1000)
+    : new Date()
+
+  if ('entryId' in decoded.args && 'user' in decoded.args && typeof decoded.args.user === 'string') {
+    const chainEntryId = Number(decoded.args.entryId)
+    if (!Number.isSafeInteger(chainEntryId) || chainEntryId <= 0) throw new Error(`Unsafe social entry ID in ${log.transactionHash}`)
+    const user = decoded.args.user.toLowerCase()
+    const [entry] = await tx.select({ id: schema.entries.id }).from(schema.entries)
+      .where(eq(schema.entries.chainEntryId, chainEntryId)).limit(1)
+    if (!entry) throw new Error(`Social event references unindexed entry ${chainEntryId}`)
+    await tx.insert(schema.wallets).values({ address: user, chainId }).onConflictDoNothing()
+
+    if (decoded.eventName === 'ReactionAdded' || decoded.eventName === 'ReactionRemoved' || decoded.eventName === 'ReactionChanged') {
+      let target: typeof reactionNames[number] | null = null
+      if (decoded.eventName === 'ReactionAdded' && 'reactionType' in decoded.args && typeof decoded.args.reactionType === 'number') {
+        target = reactionAfterEvent({ name: 'ReactionAdded', reactionType: decoded.args.reactionType }, reversed)
+      } else if (decoded.eventName === 'ReactionRemoved' && 'previousType' in decoded.args && typeof decoded.args.previousType === 'number') {
+        target = reactionAfterEvent({ name: 'ReactionRemoved', previousType: decoded.args.previousType }, reversed)
+      } else if (decoded.eventName === 'ReactionChanged' && 'oldType' in decoded.args && 'newType' in decoded.args &&
+                 typeof decoded.args.oldType === 'number' && typeof decoded.args.newType === 'number') {
+        target = reactionAfterEvent({ name: 'ReactionChanged', oldType: decoded.args.oldType, newType: decoded.args.newType }, reversed)
+      }
+      if (target === null && decoded.eventName === 'ReactionAdded' && !reversed) throw new Error(`Invalid reaction type in ${log.transactionHash}`)
+      if (target === null && decoded.eventName === 'ReactionRemoved' && reversed) throw new Error(`Invalid prior reaction in ${log.transactionHash}`)
+
+      if (target === null) {
+        await tx.delete(schema.reactions).where(and(eq(schema.reactions.entryId, entry.id), eq(schema.reactions.walletAddress, user)))
+      } else {
+        await tx.insert(schema.reactions).values({
+          entryId: entry.id,
+          walletAddress: user,
+          reactionType: target,
+          txHash: log.transactionHash,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }).onConflictDoUpdate({
+          target: [schema.reactions.entryId, schema.reactions.walletAddress],
+          set: { reactionType: target, txHash: log.transactionHash, updatedAt: timestamp },
+        })
+      }
+      const current = await tx.select({ reactionType: schema.reactions.reactionType }).from(schema.reactions)
+        .where(eq(schema.reactions.entryId, entry.id))
+      const totals = [0, 0, 0, 0, 0, 0]
+      for (const row of current) totals[reactionNames.indexOf(row.reactionType)]++
+      await tx.update(schema.entries).set({
+        totalReactions: current.length,
+        reactionLike: totals[0], reactionLove: totals[1], reactionLaugh: totals[2],
+        reactionWow: totals[3], reactionSad: totals[4], reactionAngry: totals[5],
+      }).where(eq(schema.entries.id, entry.id))
+      return
+    }
+
+    if (decoded.eventName === 'Reposted' || decoded.eventName === 'Unreposted') {
+      const active = activeAfterEvent(decoded.eventName, reversed)
+      await tx.insert(schema.reposts).values({
+        entryId: entry.id,
+        walletAddress: user,
+        txHash: active ? log.transactionHash : null,
+        active,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }).onConflictDoUpdate({
+        target: [schema.reposts.entryId, schema.reposts.walletAddress],
+        set: { active, txHash: active ? log.transactionHash : null, updatedAt: timestamp },
+      })
+      const [totals] = await tx.select({ value: count() }).from(schema.reposts)
+        .where(and(eq(schema.reposts.entryId, entry.id), eq(schema.reposts.active, true)))
+      await tx.update(schema.entries).set({ repostCount: Number(totals?.value ?? 0) }).where(eq(schema.entries.id, entry.id))
+      return
+    }
+  }
+
+  if ((decoded.eventName === 'Followed' || decoded.eventName === 'Unfollowed') &&
+      'follower' in decoded.args && 'followed' in decoded.args &&
+      typeof decoded.args.follower === 'string' && typeof decoded.args.followed === 'string') {
+    const follower = decoded.args.follower.toLowerCase()
+    const followed = decoded.args.followed.toLowerCase()
+    const active = activeAfterEvent(decoded.eventName, reversed)
+    await tx.insert(schema.wallets).values([
+      { address: follower, chainId },
+      { address: followed, chainId },
+    ]).onConflictDoNothing()
+    await tx.insert(schema.follows).values({
+      followerAddress: follower,
+      followedAddress: followed,
+      txHash: active ? log.transactionHash : null,
+      active,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }).onConflictDoUpdate({
+      target: [schema.follows.followerAddress, schema.follows.followedAddress],
+      set: { active, txHash: active ? log.transactionHash : null, updatedAt: timestamp },
+    })
+    const [followerTotals] = await tx.select({ value: count() }).from(schema.follows)
+      .where(and(eq(schema.follows.followerAddress, follower), eq(schema.follows.active, true)))
+    const [followedTotals] = await tx.select({ value: count() }).from(schema.follows)
+      .where(and(eq(schema.follows.followedAddress, followed), eq(schema.follows.active, true)))
+    await tx.update(schema.profiles).set({ followingCount: Number(followerTotals?.value ?? 0) })
+      .where(eq(schema.profiles.walletAddress, follower))
+    await tx.update(schema.profiles).set({ followerCount: Number(followedTotals?.value ?? 0) })
+      .where(eq(schema.profiles.walletAddress, followed))
+  }
+}
+
+async function updateProjection(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], contractName: string, log: Log, reversed = false) {
+  if (contractName === 'entries') return updateEntryProjection(tx, log, reversed)
+  if (contractName === 'social') return updateSocialProjection(tx, log, reversed)
+  if (contractName === 'profiles') return updateProfileProjection(tx, log, reversed)
+  if (contractName === 'moderation') return updateModerationProjection(tx, log, reversed)
+}
+
 async function rollbackToCommonBlock(contract: { name: string; address: string }, checkpoint: typeof schema.indexerCheckpoints.$inferSelect) {
   if (!checkpoint.lastBlock || !checkpoint.lastBlockHash) return checkpoint.lastBlock
   const currentBlock = await client.getBlock({ blockNumber: BigInt(checkpoint.lastBlock) })
@@ -235,20 +561,9 @@ async function rollbackToCommonBlock(contract: { name: string; address: string }
         eq(schema.indexedEvents.canonical, true),
       ))
       .orderBy(desc(schema.indexedEvents.blockNumber), desc(schema.indexedEvents.logIndex))
-    if (contract.name === 'entries') {
-      for (const row of orphaned) {
-        const result = decodeEntryLog({
-          address: contract.address as Address,
-          blockHash: row.blockHash as `0x${string}`,
-          blockNumber: BigInt(row.blockNumber),
-          data: row.data as `0x${string}`,
-          topics: row.topics as [`0x${string}`, ...`0x${string}`[]],
-          transactionHash: row.transactionHash as `0x${string}`,
-          transactionIndex: 0,
-          logIndex: row.logIndex,
-          removed: false,
-        })
-        if (result) await updateEntryProjection(tx, {
+    for (const row of orphaned) {
+      if (['entries', 'social', 'profiles', 'moderation'].includes(contract.name)) {
+        await updateProjection(tx, contract.name, {
           address: contract.address as Address,
           blockHash: row.blockHash as `0x${string}`,
           blockNumber: BigInt(row.blockNumber),
@@ -323,7 +638,7 @@ async function processContract(contract: { name: string; address: string }, safe
           topics: [...log.topics],
           data: log.data,
         }).onConflictDoNothing().returning({ id: schema.indexedEvents.id })
-        if (inserted && contract.name === 'entries') await updateEntryProjection(tx, log)
+        if (inserted) await updateProjection(tx, contract.name, log)
       }
       await tx.insert(schema.indexedBlocks).values({
         chainId,
@@ -341,6 +656,19 @@ async function processContract(contract: { name: string; address: string }, safe
         lastTxHash: logs.at(-1)?.transactionHash ?? null,
         updatedAt: new Date(),
       }).where(eq(schema.indexerCheckpoints.id, checkpoint!.id))
+      const retainedMarkers = await tx.select({ blockNumber: schema.indexedBlocks.blockNumber })
+        .from(schema.indexedBlocks)
+        .where(and(eq(schema.indexedBlocks.chainId, chainId), eq(schema.indexedBlocks.contractName, contract.name)))
+        .orderBy(desc(schema.indexedBlocks.blockNumber))
+        .limit(REORG_MARKER_LIMIT)
+      const oldestRetainedBlock = retainedMarkers.at(-1)?.blockNumber
+      if (oldestRetainedBlock !== undefined) {
+        await tx.delete(schema.indexedBlocks).where(and(
+          eq(schema.indexedBlocks.chainId, chainId),
+          eq(schema.indexedBlocks.contractName, contract.name),
+          lt(schema.indexedBlocks.blockNumber, oldestRetainedBlock),
+        ))
+      }
     })
     cursor = toBlock
   }
@@ -353,27 +681,39 @@ async function runOnce() {
   for (const contract of contracts) await processContract(contract, safeHead)
 }
 
+let shutdownRequested = false
+process.once('SIGINT', () => { shutdownRequested = true })
+process.once('SIGTERM', () => { shutdownRequested = true })
+
 async function main() {
   const lockClient = await pool.connect()
-  const lockResult = await lockClient.query<{ locked: boolean }>(
-    'SELECT pg_try_advisory_lock($1, $2) AS locked',
-    [0x4f4e, chainId],
-  )
-  if (!lockResult.rows[0]?.locked) {
-    lockClient.release()
-    throw new Error(`Another indexer already holds the chain ${chainId} lock`)
-  }
-  console.info(`[indexer] chain=${chainId} contracts=${contracts.length} start=${startBlock} confirmations=${confirmations}`)
-  while (true) {
-    try {
-      await runOnce()
-    } catch (error) {
-      console.error('[indexer] scan failed; checkpoint retained for retry:', error)
+  let lockAcquired = false
+  try {
+    const lockResult = await lockClient.query<{ locked: boolean }>(
+      'SELECT pg_try_advisory_lock($1, $2) AS locked',
+      [0x4f4e, chainId],
+    )
+    if (!lockResult.rows[0]?.locked) {
+      throw new Error(`Another indexer already holds the chain ${chainId} lock`)
     }
-    await new Promise((resolve) => setTimeout(resolve, pollMs))
+    lockAcquired = true
+    console.info(`[indexer] chain=${chainId} contracts=${contracts.length} start=${startBlock} confirmations=${confirmations}`)
+    while (!shutdownRequested) {
+      try {
+        await runOnce()
+      } catch (error) {
+        console.error('[indexer] scan failed; checkpoint retained for retry:', error)
+      }
+      if (!shutdownRequested) await new Promise((resolve) => setTimeout(resolve, pollMs))
+    }
+  } finally {
+    if (lockAcquired) await lockClient.query('SELECT pg_advisory_unlock($1, $2)', [0x4f4e, chainId])
+    lockClient.release()
+    await pool.end()
   }
 }
 
-process.once('SIGINT', () => { void pool.end().then(() => process.exit(0)) })
-process.once('SIGTERM', () => { void pool.end().then(() => process.exit(0)) })
-void main()
+void main().catch((error) => {
+  console.error('[indexer] stopped unexpectedly:', error)
+  process.exitCode = 1
+})

@@ -14,7 +14,7 @@ This file records protections that exist in the repository and the controls stil
 ## Known security gaps
 
 - There is no production database, deployed contract, or end-to-end test of the transaction verification flow in this checkout.
-- The confirmation route verifies a receipt/event for the configured chain. An indexer now waits for configurable confirmations and handles reorgs within 128 stored chunk markers, but it is not deployed and broader event projections/reconciliation remain incomplete.
+- The confirmation route verifies a receipt/event for the configured chain. The indexer waits for configurable confirmations, handles bounded reorgs within retained chunk markers, and projects common social/moderation events. It is not deployed, has not been exercised against a live database/RPC, and is not a substitute for reconciliation or a contract audit.
 - Most social interactions and moderation APIs require a separate review to confirm their authorization model and whether they are on-chain or application-layer. Do not assume buttons or database rows imply on-chain authorization.
 - Current rate limits are in-memory and process-local. Replace them with a shared store or provider-level controls before running multiple instances.
 - The `sessions` table is not used for revocation; logout clears the iron-session cookie. Secret rotation invalidates sessions, but individual server-side session revocation is not available.

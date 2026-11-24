@@ -46,6 +46,15 @@ export const ONCHAIN_ENTRIES_ABI = [
       { name: 'by', type: 'address', indexed: true },
     ],
   },
+  {
+    type: 'event',
+    name: 'UserRestrictionChanged',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'restriction', type: 'uint8', indexed: false },
+      { name: 'changedBy', type: 'address', indexed: true },
+    ],
+  },
   // Write functions
   {
     type: 'function',
@@ -249,6 +258,17 @@ export const ONCHAIN_SOCIAL_ABI = [
   },
   {
     type: 'event',
+    name: 'ReactionChanged',
+    inputs: [
+      { name: 'entryId', type: 'uint256', indexed: true },
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'oldType', type: 'uint8', indexed: false },
+      { name: 'newType', type: 'uint8', indexed: false },
+      { name: 'timestamp', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
     name: 'Reposted',
     inputs: [
       { name: 'entryId', type: 'uint256', indexed: true },
@@ -424,6 +444,24 @@ export const ONCHAIN_PROFILES_ABI = [
     ],
   },
   {
+    type: 'event',
+    name: 'ProfileDeactivated',
+    inputs: [
+      { name: 'wallet', type: 'address', indexed: true },
+      { name: 'by', type: 'address', indexed: true },
+      { name: 'timestamp', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'ProfileRestored',
+    inputs: [
+      { name: 'wallet', type: 'address', indexed: true },
+      { name: 'by', type: 'address', indexed: true },
+      { name: 'timestamp', type: 'uint256', indexed: false },
+    ],
+  },
+  {
     type: 'function',
     name: 'registerProfile',
     stateMutability: 'nonpayable',
@@ -473,6 +511,54 @@ export const ONCHAIN_PROFILES_ABI = [
 ] as const
 
 export const ONCHAIN_MODERATION_ABI = [
+  {
+    type: 'event',
+    name: 'ReportSubmitted',
+    inputs: [
+      { name: 'reportId', type: 'uint256', indexed: true },
+      { name: 'reporter', type: 'address', indexed: true },
+      { name: 'targetEntryId', type: 'uint256', indexed: false },
+      { name: 'targetWallet', type: 'address', indexed: false },
+      { name: 'category', type: 'uint8', indexed: false },
+      { name: 'timestamp', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'ReportStatusChanged',
+    inputs: [
+      { name: 'reportId', type: 'uint256', indexed: true },
+      { name: 'oldStatus', type: 'uint8', indexed: false },
+      { name: 'newStatus', type: 'uint8', indexed: false },
+      { name: 'changedBy', type: 'address', indexed: true },
+      { name: 'timestamp', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'ModerationAuditRecorded',
+    inputs: [
+      { name: 'auditId', type: 'uint256', indexed: true },
+      { name: 'actor', type: 'address', indexed: true },
+      { name: 'action', type: 'uint8', indexed: false },
+      { name: 'targetEntryId', type: 'uint256', indexed: false },
+      { name: 'targetWallet', type: 'address', indexed: false },
+      { name: 'timestamp', type: 'uint256', indexed: false },
+    ],
+  },
+  { type: 'event', name: 'ModeratorAdded', inputs: [{ name: 'moderator', type: 'address', indexed: true }, { name: 'by', type: 'address', indexed: true }] },
+  { type: 'event', name: 'ModeratorRemoved', inputs: [{ name: 'moderator', type: 'address', indexed: true }, { name: 'by', type: 'address', indexed: true }] },
+  { type: 'event', name: 'TrustedUserAdded', inputs: [{ name: 'user', type: 'address', indexed: true }, { name: 'by', type: 'address', indexed: true }] },
+  { type: 'event', name: 'TrustedUserRemoved', inputs: [{ name: 'user', type: 'address', indexed: true }, { name: 'by', type: 'address', indexed: true }] },
+  {
+    type: 'event',
+    name: 'ModerationModeChanged',
+    inputs: [
+      { name: 'oldMode', type: 'uint8', indexed: false },
+      { name: 'newMode', type: 'uint8', indexed: false },
+      { name: 'by', type: 'address', indexed: true },
+    ],
+  },
   {
     type: 'function',
     name: 'reportEntry',
