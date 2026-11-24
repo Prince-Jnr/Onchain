@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Flag, AlertTriangle, CheckCircle, RotateCcw, Trash2, EyeOff } from 'lucide-react'
+import { Flag, CheckCircle, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { AdminShell } from '@/components/admin/AdminShell'
@@ -122,9 +123,5 @@ export default function AdminReportsPage() {
 }
 
 function BadgeShim({ status }: { status: Report['status'] }) {
-  const { Badge } = require('@/components/ui/badge') as typeof import('@/components/ui/badge')
   return <Badge variant={status === 'PENDING' ? 'destructive' : 'secondary'}>{status}</Badge>
 }
-void AlertTriangle
-void EyeOff
-void Trash2
