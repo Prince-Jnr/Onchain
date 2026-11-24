@@ -28,16 +28,7 @@ function parseTargetAddress(body: unknown): string | NextResponse {
   return target.toLowerCase() as string
 }
 
-// Exported for /api/follows/[address]/status
-export async function getFollowStatus(address: string | null): Promise<{ isFollowing: boolean }> {
-  if (!address) return { isFollowing: false }
-  const [row] = await db
-    .select({ id: follows.id })
-    .from(follows)
-    .where(and(eq(follows.followerAddress, address), eq(follows.active, true)))
-    .limit(1)
-  return { isFollowing: !!row }
-}
+export * from '../../../lib/follow-status'
 
 // ---------------------------------------------------------------------------
 // POST /api/follows — follow an address (app-layer record; on-chain via wallet)

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFollowStatus } from '../route'
+import { getFollowStatus } from '../../../lib/follow-status'
 
 // GET /api/follows/status?address=X
 export async function GET(request: NextRequest) {

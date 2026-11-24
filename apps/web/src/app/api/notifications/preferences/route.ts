@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { notificationPreferences, notificationTypeEnum } from '@/lib/schema'
 import { getAuthenticatedSession } from '@/lib/session'
 import { NotificationType } from '@onchain/shared'
+import { getNotificationPreferences } from '@/lib/notification-preferences'
 
 const ALL_TYPES = notificationTypeEnum.enumValues
 
@@ -16,37 +17,12 @@ async function requireSession() {
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/notifications/preferences — returns { type: boolean } map
-// ---------------------------------------------------------------------------
-export async function getPreferences(): Promise<Record<string, boolean>> {
-  try {
-    const session = await getAuthenticatedSession()
-    if (!session) return {}
-    const rows = await db
-      .select({ type: notificationPreferences.type, enabled: notificationPreferences.enabled })
-      .from(notificationPreferences)
-      .where(eq(notificationPreferences.walletAddress, session.walletAddress))
-    const map: Record<string, boolean> = {}
-    for (const row of rows) {
-      if (ALL_TYPES.includes(row.type as NotificationType)) map[row.type] = row.enabled
-    }
-    // Defaults for types without explicit rows
-    for (const type of ALL_TYPES) {
-      if (map[type] === undefined) map[type] = true
-    }
-    return map
-  } catch {
-    return {}
-  }
-}
-
-// ---------------------------------------------------------------------------
 // GET /api/notifications/preferences
 // ---------------------------------------------------------------------------
 export async function GET(): Promise<Response> {
   const session = await requireSession()
   if (session instanceof NextResponse) return session
-  return NextResponse.json(await getPreferences())
+  return NextResponse.json(await getNotificationPreferences())
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +68,7 @@ export async function PATCH(request: NextRequest): Promise<Response> {
           set: { enabled: enabled as boolean, updatedAt: new Date() },
         })
     }
-    return NextResponse.json(await getPreferences())
+    return NextResponse.json(await getNotificationPreferences())
   } catch {
     return NextResponse.json({ error: 'Failed to save preferences' }, { status: 500 })
   }
