@@ -1,6 +1,7 @@
 import { eq, desc, gt, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { wallets, indexedBlocks, moderationLogs, entries, reports } from '@/lib/schema'
+import { wallets, indexedBlocks, indexerCheckpoints, moderationLogs, entries, reports } from '@/lib/schema'
+import { and } from 'drizzle-orm'
 import { getAuthenticatedSession } from '@/lib/session'
 import { isValidAddress } from '@onchain/shared'
 
@@ -41,8 +42,12 @@ const INDEXER_FRESHNESS_MS = 60 * 60 * 1000 // 1 hour
 
 export async function getIndexerStatus() {
   const rows = await db
-    .select({ blockNumber: indexedBlocks.blockNumber, updatedAt: indexedBlocks.updatedAt })
+    .select({ blockNumber: indexedBlocks.blockNumber, updatedAt: indexerCheckpoints.updatedAt })
     .from(indexedBlocks)
+    .innerJoin(indexerCheckpoints, and(
+      eq(indexerCheckpoints.chainId, indexedBlocks.chainId),
+      eq(indexerCheckpoints.contractName, indexedBlocks.contractName),
+    ))
     .orderBy(desc(indexedBlocks.blockNumber))
     .limit(1)
 
@@ -62,8 +67,10 @@ export async function getIndexerStatus() {
 export async function computeAdminStats() {
   const totalUsers = await db.$count(wallets)
   const totalPosts = await db.$count(entries)
-  const totalReactions = await db.select({ value: sql<number>`COALESCE(SUM(${entries.totalReactions}), 0)` }).from(entries)
-    .then((r) => Number(r[0]?.value ?? 0))
+  const [totalReactionsRow] = await db
+    .select({ value: sql<number>`COALESCE(SUM(${entries.totalReactions}), 0)` })
+    .from(entries)
+  const totalReactions = Number(totalReactionsRow?.value ?? 0)
   const pendingModeration = await db.$count(entries, eq(entries.status, 'PENDING'))
   const openReports = await db.$count(reports, eq(reports.status, 'PENDING'))
   const activeUsers24h = await db.$count(
